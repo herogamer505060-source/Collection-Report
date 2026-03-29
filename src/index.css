@@ -1,0 +1,128 @@
+@import url('https://fonts.googleapis.com/css2?family=Cairo:wght@300;400;500;600;700;800&display=swap');
+@import "tailwindcss";
+
+@theme {
+  --font-sans: "Cairo", ui-sans-serif, system-ui, sans-serif;
+}
+
+@layer base {
+  body {
+    @apply antialiased;
+  }
+}
+
+@media print {
+  body {
+    background-color: white !important;
+    padding: 0 !important;
+    color: black !important;
+    width: 100% !important;
+    height: auto !important;
+    overflow: visible !important;
+    -webkit-print-color-adjust: exact !important;
+    print-color-adjust: exact !important;
+  }
+  
+  .print\:hidden {
+    display: none !important;
+  }
+  
+  .print\:block {
+    display: block !important;
+  }
+
+  .print\:shadow-none {
+    box-shadow: none !important;
+  }
+
+  .print\:border-slate-300 {
+    border-color: #cbd5e1 !important;
+  }
+
+  .print\:p-0 {
+    padding: 0 !important;
+  }
+
+  .print\:m-0 {
+    margin: 0 !important;
+  }
+
+  .print\:bg-white {
+    background-color: white !important;
+  }
+
+  /* Force the container to be full width and visible */
+  #root, .min-h-screen {
+    width: 100% !important;
+    height: auto !important;
+    overflow: visible !important;
+    display: block !important;
+    position: static !important;
+  }
+
+  table {
+    width: 100% !important;
+    border-collapse: collapse !important;
+    font-size: 8pt !important; /* Slightly smaller for maximum fit */
+    table-layout: fixed !important; /* Fixed layout for consistent column widths */
+    margin-bottom: 1rem !important;
+  }
+
+  thead {
+    display: table-header-group !important;
+  }
+
+  tr {
+    page-break-inside: avoid !important;
+  }
+
+  th, td {
+    border: 1px solid #64748b !important; /* Darker border for print clarity */
+    padding: 4px 6px !important;
+    word-wrap: break-word !important;
+    text-align: right !important;
+    overflow: hidden !important;
+  }
+
+  th {
+    background-color: #f1f5f9 !important;
+    color: #0f172a !important;
+    font-weight: bold !important;
+  }
+
+  .print-summary-grid {
+    display: grid !important;
+    grid-template-columns: repeat(4, 1fr) !important;
+    gap: 0.5rem !important;
+    margin-bottom: 1.5rem !important;
+  }
+
+  @page {
+    margin: 0.5cm;
+    size: A4 landscape;
+  }
+
+  /* Hide charts in print to focus on data table and summary */
+  .recharts-responsive-container, .recharts-wrapper, .recharts-surface {
+    display: none !important;
+  }
+  
+  /* Hide the chart containers entirely */
+  .grid-cols-1.lg\:grid-cols-2 {
+    display: none !important;
+  }
+
+  /* Status badge colors in print */
+  .bg-indigo-100 { background-color: #e0e7ff !important; }
+  .text-indigo-700 { color: #4338ca !important; }
+  .bg-emerald-100 { background-color: #d1fae5 !important; }
+  .text-emerald-700 { color: #047857 !important; }
+  .bg-amber-100 { background-color: #fef3c7 !important; }
+  .text-amber-700 { color: #b45309 !important; }
+  .bg-rose-100 { background-color: #fee2e2 !important; }
+  .text-rose-700 { color: #b91c1c !important; }
+}
+
+.dir-rtl {
+  direction: rtl;
+}
