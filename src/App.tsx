@@ -70,9 +70,11 @@ export default function App() {
   const stats = useMemo((): DashboardStats => {
     const totalNet = data.reduce((sum, item) => sum + item.netValue, 0);
     
-    // Logic: If there's a commercial paper, it's NOT considered collected cash yet.
+    // Logic Audit: 
+    // 1. If there's a commercial paper, it's NOT considered collected cash yet (per user request).
+    // 2. We only count collected cash if there's no pending commercial paper.
     const totalCollected = data.reduce((sum, item) => {
-      if (item.commercialPaper) return sum;
+      if (item.commercialPaper && item.commercialPaper.trim() !== "") return sum;
       return sum + item.collected;
     }, 0);
     
@@ -84,7 +86,7 @@ export default function App() {
       return {
         name: String(p),
         collected: pData.reduce((sum, item) => {
-          if (item.commercialPaper) return sum;
+          if (item.commercialPaper && item.commercialPaper.trim() !== "") return sum;
           return sum + item.collected;
         }, 0),
         remaining: pData.reduce((sum, item) => sum + item.remaining, 0),
@@ -97,7 +99,7 @@ export default function App() {
       return {
         month: String(m),
         collected: mData.reduce((sum, item) => {
-          if (item.commercialPaper) return sum;
+          if (item.commercialPaper && item.commercialPaper.trim() !== "") return sum;
           return sum + item.collected;
         }, 0),
         remaining: mData.reduce((sum, item) => sum + item.remaining, 0),
@@ -134,7 +136,7 @@ export default function App() {
   return (
     <div className="min-h-screen bg-slate-50 text-slate-900 font-sans p-4 md:p-8 dir-rtl print:p-0 print:m-0 print:bg-white" dir="rtl">
       {/* Print Header */}
-      <div className="hidden print:flex flex-col items-center mb-8 border-b-2 border-slate-800 pb-4">
+      <div className="hidden print:flex flex-col items-center mb-6 border-b-2 border-slate-800 pb-4">
         <h1 className="text-2xl font-bold text-slate-900">تقرير تحصيل الأقساط العقارية</h1>
         <p className="text-slate-600 mt-1">تاريخ التقرير: {new Date().toLocaleDateString('ar-EG')}</p>
       </div>
@@ -147,19 +149,20 @@ export default function App() {
         </div>
         <div className="flex flex-wrap gap-3">
           <button 
+            type="button"
             onClick={handlePrint}
-            className="flex items-center gap-2 px-4 py-2 bg-white border border-slate-200 rounded-lg shadow-sm hover:bg-slate-50 transition-colors"
+            className="flex items-center gap-2 px-6 py-3 bg-white border-2 border-slate-200 rounded-xl shadow-sm hover:bg-slate-50 hover:border-indigo-300 transition-all active:scale-95 group cursor-pointer"
           >
-            <Printer size={18} />
-            <span>طباعة التقرير</span>
+            <Printer size={20} className="text-indigo-600 group-hover:scale-110 transition-transform" />
+            <span className="font-bold text-slate-700">طباعة التقرير</span>
           </button>
           <div {...getRootProps()} className={cn(
-            "flex items-center gap-2 px-4 py-2 bg-indigo-600 text-white rounded-lg shadow-sm cursor-pointer hover:bg-indigo-700 transition-colors",
-            isDragActive && "bg-indigo-800"
+            "flex items-center gap-2 px-6 py-3 bg-indigo-600 text-white rounded-xl shadow-md cursor-pointer hover:bg-indigo-700 transition-all active:scale-95",
+            isDragActive && "bg-indigo-800 scale-105"
           )}>
             <input {...getInputProps()} />
-            {isAnalyzing ? <Loader2 className="animate-spin" size={18} /> : <Upload size={18} />}
-            <span>{isAnalyzing ? "جاري التحليل..." : "رفع ملف PDF"}</span>
+            {isAnalyzing ? <Loader2 className="animate-spin" size={20} /> : <Upload size={20} />}
+            <span className="font-bold">{isAnalyzing ? "جاري التحليل..." : "رفع ملف PDF"}</span>
           </div>
         </div>
       </header>
@@ -324,7 +327,7 @@ export default function App() {
                     <td className="px-6 py-4 text-rose-600 font-semibold">{formatCurrency(item.remaining)}</td>
                     <td className="px-6 py-4 text-indigo-600 font-bold text-xs">{item.commercialPaper || "-"}</td>
                     <td className="px-6 py-4">
-                      {item.commercialPaper ? (
+                      {item.commercialPaper && item.commercialPaper.trim() !== "" ? (
                         <span className="px-2 py-1 bg-indigo-100 text-indigo-700 text-xs rounded-full font-medium">بانتظار التحصيل (ورقة)</span>
                       ) : item.remaining <= 0 ? (
                         <span className="px-2 py-1 bg-emerald-100 text-emerald-700 text-xs rounded-full font-medium">مسدد بالكامل</span>
