@@ -10,8 +10,10 @@ import {
 } from 'recharts';
 import { 
   Upload, TrendingUp, DollarSign, Users, AlertCircle, 
-  Download, Printer, Search, CheckCircle2, Loader2
+  Download, Printer, Search, CheckCircle2, Loader2,
+  FileSpreadsheet
 } from 'lucide-react';
+import * as XLSX from 'xlsx';
 import { useDropzone } from 'react-dropzone';
 import { motion, AnimatePresence } from 'motion/react';
 import { cn } from './lib/utils';
@@ -151,6 +153,69 @@ export default function App() {
     window.print();
   };
 
+  const handleExportExcel = () => {
+    const exportData = filteredData.map(item => ({
+      'العميل': item.customer,
+      'المشروع': item.project,
+      'الوحدة': item.unitCode,
+      'كود القسط': item.installmentCode,
+      'التاريخ': item.date,
+      'صافي القيمة': item.netValue,
+      'المحصل': item.collected,
+      'المتبقي': item.remaining,
+      'الورقة التجارية': item.commercialPaper || '-',
+      'الحالة': item.commercialPaper && item.commercialPaper.trim() !== "" ? 'بانتظار التحصيل (ورقة)' : 
+               item.remaining <= 0 ? 'مسدد بالكامل' : 
+               item.collected > 0 ? 'مسدد جزئياً' : 'غير مسدد',
+      'ملاحظات': item.notes || '-'
+    }));
+
+    const header = [
+      ["تقرير تحصيل الأقساط العقارية"],
+      [`تاريخ التقرير: ${new Date().toLocaleDateString('ar-EG')}`],
+      [], // Empty row
+      ['العميل', 'المشروع', 'الوحدة', 'كود القسط', 'التاريخ', 'صافي القيمة', 'المحصل', 'المتبقي', 'الورقة التجارية', 'الحالة', 'ملاحظات']
+    ];
+
+    const dataRows = filteredData.map(item => [
+      item.customer,
+      item.project,
+      item.unitCode,
+      item.installmentCode,
+      item.date,
+      item.netValue,
+      item.collected,
+      item.remaining,
+      item.commercialPaper || '-',
+      item.commercialPaper && item.commercialPaper.trim() !== "" ? 'بانتظار التحصيل (ورقة)' : 
+               item.remaining <= 0 ? 'مسدد بالكامل' : 
+               item.collected > 0 ? 'مسدد جزئياً' : 'غير مسدد',
+      item.notes || '-'
+    ]);
+
+    const ws = XLSX.utils.aoa_to_sheet([...header, ...dataRows]);
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, "التحصيلات");
+
+    // Auto-size columns
+    const colWidths = [
+      { wch: 30 }, // العميل
+      { wch: 20 }, // المشروع
+      { wch: 15 }, // الوحدة
+      { wch: 15 }, // كود القسط
+      { wch: 15 }, // التاريخ
+      { wch: 15 }, // صافي القيمة
+      { wch: 15 }, // المحصل
+      { wch: 15 }, // المتبقي
+      { wch: 20 }, // الورقة التجارية
+      { wch: 25 }, // الحالة
+      { wch: 30 }  // ملاحظات
+    ];
+    ws['!cols'] = colWidths;
+
+    XLSX.writeFile(wb, `تقرير_التحصيل_${new Date().toLocaleDateString('ar-EG')}.xlsx`);
+  };
+
   return (
     <div className="min-h-screen bg-slate-50 text-slate-900 font-sans p-4 md:p-8 dir-rtl print:p-0 print:m-0 print:bg-white" dir="rtl">
       {/* Print-only Header */}
@@ -177,11 +242,19 @@ export default function App() {
           )}
           <button 
             type="button"
+            onClick={handleExportExcel}
+            className="flex items-center gap-2 px-6 py-3 bg-emerald-600 text-white rounded-xl shadow-md hover:bg-emerald-700 transition-all active:scale-95 group cursor-pointer"
+          >
+            <FileSpreadsheet size={20} className="group-hover:scale-110 transition-transform" />
+            <span className="font-bold">تصدير Excel</span>
+          </button>
+          <button 
+            type="button"
             onClick={handlePrint}
             className="flex items-center gap-2 px-6 py-3 bg-white border-2 border-slate-200 rounded-xl shadow-sm hover:bg-slate-50 hover:border-indigo-300 transition-all active:scale-95 group cursor-pointer"
           >
             <Printer size={20} className="text-indigo-600 group-hover:scale-110 transition-transform" />
-            <span className="font-bold text-slate-700">طباعة التقرير</span>
+            <span className="font-bold text-slate-700">طباعة PDF</span>
           </button>
           <div {...getRootProps()} className={cn(
             "flex items-center gap-2 px-6 py-3 bg-indigo-600 text-white rounded-xl shadow-md cursor-pointer hover:bg-indigo-700 transition-all active:scale-95",
@@ -253,7 +326,7 @@ export default function App() {
       {/* Charts Section Title for Print */}
       <h2 className="hidden print:block text-2xl font-bold mb-6 border-r-4 border-indigo-600 pr-4">التحليل البياني والتدفقات</h2>
 
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-8 mb-8 print:break-inside-avoid print:grid-cols-1">
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-8 mb-8 print:grid-cols-1 print:break-after-page">
         <div className="bg-white p-6 rounded-2xl shadow-sm border border-slate-100 print:shadow-none print:border-slate-300">
           <h3 className="text-lg font-semibold mb-6 flex items-center gap-2">
             <TrendingUp size={20} className="text-indigo-600" />

@@ -144,6 +144,10 @@
     page-break-before: always !important;
   }
 
+  .print\:break-after-page {
+    page-break-after: always !important;
+  }
+
   /* Signature section at the end of the report */
   .print-footer-signatures {
     display: flex !important;
