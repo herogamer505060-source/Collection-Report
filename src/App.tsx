@@ -187,7 +187,7 @@ function MainApp() {
         reader.onload = (e) => {
           try {
             const dataArr = new Uint8Array(e.target?.result as ArrayBuffer);
-            const workbook = XLSX.read(dataArr, { type: 'array' });
+            const workbook = XLSX.read(dataArr, { type: 'array', cellDates: true });
             const firstSheetName = workbook.SheetNames[0];
             const worksheet = workbook.Sheets[firstSheetName];
             const jsonData = XLSX.utils.sheet_to_json(worksheet);
@@ -207,13 +207,26 @@ function MainApp() {
                 netValue = value > 0 ? value : (collected + remaining);
               }
 
+              // Handle Date formatting
+              let rawDate = getVal(['التاريخ', 'Date', 'تاريخ الاستحقاق', 'تاريخ الاستحقاق للاقساط', 'تاريخ', 'Due Date']);
+              let formattedDate = "";
+              if (rawDate instanceof Date) {
+                formattedDate = rawDate.toISOString().split('T')[0];
+              } else if (typeof rawDate === 'number') {
+                // Excel serial date
+                const date = new Date((rawDate - 25569) * 86400 * 1000);
+                formattedDate = date.toISOString().split('T')[0];
+              } else {
+                formattedDate = String(rawDate || '');
+              }
+
               return {
                 customer: getVal(['العميل', 'Customer', 'اسم العميل', 'الاسم']) || '',
                 project: getVal(['المشروع', 'Project', 'اسم المشروع']) || '',
                 unitCode: getVal(['الوحدة', 'Unit', 'رقم الوحدة', 'كود الوحدة']) || '',
                 type: getVal(['النوع', 'Type', 'نوع القسط']) || 'قسط',
                 installmentCode: String(getVal(['كود القسط', 'Installment Code', 'رقم القسط']) || Math.random().toString(36).substr(2, 9)),
-                date: getVal(['التاريخ', 'Date', 'تاريخ الاستحقاق']) || '',
+                date: formattedDate,
                 value: value,
                 netValue: netValue,
                 collected: collected,
@@ -606,7 +619,7 @@ function MainApp() {
                 توزيع التحصيل حسب المشروع
               </h3>
               <div className="h-[450px] w-full">
-                <ResponsiveContainer width="100%" height="100%">
+                <ResponsiveContainer width="100%" height="100%" minWidth={0}>
                   <PieChart>
                     <Pie
                       data={stats.projectStats}
@@ -635,7 +648,7 @@ function MainApp() {
                 التدفق المالي الشهري
               </h3>
               <div className="h-[400px] w-full">
-                <ResponsiveContainer width="100%" height="100%">
+                <ResponsiveContainer width="100%" height="100%" minWidth={0}>
                   <AreaChart data={stats.monthlyStats} margin={{ top: 50, right: 30, left: 0, bottom: 0 }}>
                     <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f1f5f9" />
                     <XAxis dataKey="month" tick={{ fontSize: 12, fontWeight: 600 }} />
@@ -659,7 +672,7 @@ function MainApp() {
               <tr className="bg-slate-50 text-slate-900 border-b-2 border-slate-300 text-xs">
                 <th className="px-3 py-3 font-black border text-right">العميل</th>
                 <th className="px-3 py-3 font-black border text-right">المشروع</th>
-                <th className="px-3 py-3 font-black border text-right">الوحدة</th>
+                <th className="px-3 py-3 font-black border text-right max-w-[120px]">الوحدة</th>
                 <th className="px-3 py-3 font-black border text-right">التاريخ</th>
                 <th className="px-3 py-3 font-black border text-right">صافي القيمة</th>
                 <th className="px-3 py-3 font-black border text-center">المحصل</th>
@@ -672,7 +685,7 @@ function MainApp() {
                 <tr key={idx} className="border-b text-xs">
                   <td className="px-3 py-2 border font-bold">{item.customer}</td>
                   <td className="px-3 py-2 border">{item.project}</td>
-                  <td className="px-3 py-2 border font-mono">{item.unitCode}</td>
+                  <td className="px-3 py-2 border font-mono max-w-[120px] whitespace-normal break-words">{item.unitCode}</td>
                   <td className="px-3 py-2 border">{item.date}</td>
                   <td className="px-3 py-2 border font-black">{formatCurrency(item.netValue)}</td>
                   <td className="px-3 py-2 border text-center font-black text-emerald-700">{formatCurrency(item.collected)}</td>
@@ -800,9 +813,9 @@ function DashboardView({
           <table className="w-full text-right border-collapse">
             <thead>
               <tr className="bg-slate-50 text-slate-500 text-xs uppercase tracking-wider border-b border-slate-200">
-                <th className="px-6 py-4 font-bold text-right min-w-[180px]">العميل</th>
+                <th className="px-6 py-4 font-bold text-right min-w-[150px]">العميل</th>
                 <th className="px-6 py-4 font-bold text-right">المشروع</th>
-                <th className="px-6 py-4 font-bold text-right">الوحدة</th>
+                <th className="px-6 py-4 font-bold text-right max-w-[100px]">الوحدة</th>
                 <th className="px-6 py-4 font-bold text-right">التاريخ</th>
                 <th className="px-6 py-4 font-bold text-right">صافي القيمة</th>
                 <th className="px-6 py-4 font-bold text-center">المحصل</th>
@@ -822,9 +835,9 @@ function DashboardView({
                     transition={{ delay: idx * 0.05 }}
                     className="hover:bg-slate-50 transition-colors group"
                   >
-                    <td className="px-6 py-4 font-bold text-slate-900">{item.customer}</td>
+                    <td className="px-6 py-4 font-bold text-slate-900 whitespace-normal break-words leading-relaxed min-w-[150px]">{item.customer}</td>
                     <td className="px-6 py-4 text-slate-600 text-sm">{item.project}</td>
-                    <td className="px-6 py-4 text-slate-600 text-sm font-mono">{item.unitCode}</td>
+                    <td className="px-6 py-4 text-slate-600 text-sm font-mono max-w-[100px] whitespace-normal break-words leading-relaxed">{item.unitCode}</td>
                     <td className="px-6 py-4 text-slate-500 text-sm">{item.date}</td>
                     <td className="px-6 py-4 text-slate-900 font-black">{formatCurrency(item.netValue)}</td>
                     <td className="px-6 py-4 text-emerald-600 font-black text-center">{formatCurrency(item.collected)}</td>
@@ -921,7 +934,7 @@ function ReportsView({ stats, filteredData, formatCurrency, handlePrint, handleE
             توزيع التحصيل حسب المشروع
           </h3>
           <div className="h-[350px]">
-            <ResponsiveContainer width="100%" height="100%">
+            <ResponsiveContainer width="100%" height="100%" minWidth={0}>
               <PieChart>
                 <Pie
                   data={stats.projectStats}
@@ -951,7 +964,7 @@ function ReportsView({ stats, filteredData, formatCurrency, handlePrint, handleE
             التدفق المالي الشهري
           </h3>
           <div className="h-[350px]">
-            <ResponsiveContainer width="100%" height="100%">
+            <ResponsiveContainer width="100%" height="100%" minWidth={0}>
               <AreaChart data={stats.monthlyStats} margin={{ top: 10, right: 10, left: 0, bottom: 0 }}>
                 <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f1f5f9" />
                 <XAxis dataKey="month" tick={{ fontSize: 10 }} />

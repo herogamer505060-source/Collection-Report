@@ -1,32 +1,30 @@
 rules_version = '2';
-
-// ===============================================================
-// Assumed Data Model
-// ===============================================================
-//
-// Collection: installments
-// Document ID: {installmentId}
-// Fields:
-//   - id: string (required) - Unique identifier
-//   - customer: string (required) - Client name
-//   - project: string (required) - Project name
-//   - unitCode: string (required) - Unit name or number
-//   - type: string (required) - Installment type
-//   - installmentCode: string (required) - Installment code
-//   - date: string (required) - Due date
-//   - value: number (required) - Value
-//   - netValue: number (required) - Net value
-//   - collected: number (required) - Collected amount
-//   - remaining: number (required) - Remaining amount
-//   - commercialPaper: string (optional) - Commercial paper
-//   - notes: string (optional) - Notes
-//   - uid: string (required) - Owner UID
-//   - createdAt: string (optional) - ISO 8601 creation timestamp
-//
-// ===============================================================
-
 service cloud.firestore {
   match /databases/{database}/documents {
+
+    // ===============================================================
+    // Assumed Data Model
+    // ===============================================================
+    //
+    // Collection: installments
+    // Document ID: [customer]_[project]_[unitCode]_[installmentCode]
+    // Fields:
+    //   - customer: string (required) - Customer name
+    //   - project: string (required) - Project name
+    //   - unitCode: string (required) - Unit code
+    //   - type: string (optional) - Installment type
+    //   - installmentCode: string (required) - Installment code
+    //   - date: string (required, format: date) - Due date
+    //   - value: number (required) - Installment value
+    //   - netValue: number (required) - Net value
+    //   - collected: number (required) - Collected amount
+    //   - remaining: number (required) - Remaining amount
+    //   - commercialPaper: string (optional) - Commercial paper number
+    //   - notes: string (optional) - Notes
+    //   - uid: string (required) - User ID of the owner
+    //   - updatedAt: string (optional, format: date-time) - Last update timestamp
+    //
+    // ===============================================================
 
     // ===============================================================
     // Helper Functions
@@ -44,14 +42,10 @@ service cloud.firestore {
       return isAuthenticated() && request.auth.uid == resource.data.uid;
     }
 
-    function uidUnchanged() {
-      return !('uid' in request.resource.data) ||
-        request.resource.data.uid == request.auth.uid;
-    }
-
-    function uidNotModified() {
-      return !('uid' in request.resource.data) ||
-        request.resource.data.uid == resource.data.uid;
+    function isAdmin() {
+      return isAuthenticated() &&
+        (get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'admin' ||
+          (request.auth.token.email == "hero.gamer505060@gmail.com" && request.auth.token.email_verified == true));
     }
 
     function hasRequiredFields(fields) {
@@ -62,31 +56,22 @@ service cloud.firestore {
       return request.resource.data.keys().hasOnly(fields);
     }
 
-    function areImmutableFieldsUnchanged(fields) {
-      return !request.resource.data.diff(resource.data).affectedKeys().hasAny(fields);
-    }
-
-    function validStringLength(field, minLen, maxLen) {
-      return request.resource.data[field] is string &&
-        request.resource.data[field].size() >= minLen &&
-        request.resource.data[field].size() <= maxLen;
-    }
-
     function isValidInstallment(data) {
-      return hasRequiredFields(['id', 'customer', 'project', 'unitCode', 'type', 'installmentCode', 'date', 'value', 'netValue', 'collected', 'remaining', 'uid']) &&
-             hasOnlyAllowedFields(['id', 'customer', 'project', 'unitCode', 'type', 'installmentCode', 'date', 'value', 'netValue', 'collected', 'remaining', 'commercialPaper', 'notes', 'uid', 'createdAt']) &&
-             data.id is string && data.id.size() > 0 &&
-             data.customer is string && data.customer.size() > 0 &&
-             data.project is string && data.project.size() > 0 &&
-             data.unitCode is string && data.unitCode.size() > 0 &&
-             data.type is string &&
-             data.installmentCode is string &&
-             data.date is string &&
+      return hasRequiredFields(['customer', 'project', 'unitCode', 'installmentCode', 'date', 'value', 'netValue', 'collected', 'remaining', 'uid']) &&
+             data.customer is string && data.customer.size() > 0 && data.customer.size() < 200 &&
+             data.project is string && data.project.size() > 0 && data.project.size() < 100 &&
+             data.unitCode is string && data.unitCode.size() > 0 && data.unitCode.size() < 100 &&
+             data.installmentCode is string && data.installmentCode.size() > 0 && data.installmentCode.size() < 100 &&
+             data.date is string && data.date.matches("^\\d{4}-\\d{2}-\\d{2}$") &&
              data.value is number &&
              data.netValue is number &&
              data.collected is number &&
              data.remaining is number &&
-             data.uid is string && data.uid == request.auth.uid;
+             data.uid is string && data.uid == request.auth.uid &&
+             (!('type' in data) || (data.type is string && data.type.size() < 50)) &&
+             (!('commercialPaper' in data) || (data.commercialPaper is string && data.commercialPaper.size() < 100)) &&
+             (!('notes' in data) || (data.notes is string && data.notes.size() < 1000)) &&
+             (!('updatedAt' in data) || (data.updatedAt is string && data.updatedAt.matches("^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}.*Z?$")));
     }
 
     // ===============================================================
@@ -94,14 +79,20 @@ service cloud.firestore {
     // ===============================================================
 
     match /installments/{installmentId} {
-      allow read: if isDocOwner();
+      allow read: if isDocOwner() || isAdmin();
       allow create: if isAuthenticated() && isValidInstallment(request.resource.data);
-      allow update: if isDocOwner() && isValidInstallment(request.resource.data) && uidNotModified();
-      allow delete: if isDocOwner();
+      allow update: if isAuthenticated() && isValidInstallment(request.resource.data) && (isDocOwner() || isAdmin());
+      allow delete: if isDocOwner() || isAdmin();
+    }
+
+    match /users/{userId} {
+      allow read: if isOwner(userId) || isAdmin();
+      allow create: if isAuthenticated() && isOwner(userId) && request.resource.data.role == 'user';
+      allow update: if isAuthenticated() && (isOwner(userId) && request.resource.data.role == resource.data.role) || isAdmin();
     }
 
     // Default deny
-    match /{document=**} {
+    match /{path=**} {
       allow read, write: if false;
     }
   }

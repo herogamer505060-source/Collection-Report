@@ -2,66 +2,31 @@
   "entities": {
     "Installment": {
       "title": "Installment",
-      "description": "Represents an installment record.",
+      "description": "Represents a real estate installment record.",
       "type": "object",
       "properties": {
-        "id": {
-          "type": "string",
-          "description": "Unique identifier for the installment."
-        },
-        "unit": {
-          "type": "string",
-          "description": "Unit name or number."
-        },
-        "project": {
-          "type": "string",
-          "description": "Project name."
-        },
-        "client": {
-          "type": "string",
-          "description": "Client name."
-        },
-        "dueDate": {
-          "type": "string",
-          "description": "Due date of the installment."
-        },
-        "value": {
-          "type": "number",
-          "description": "Value of the installment."
-        },
-        "collected": {
-          "type": "number",
-          "description": "Amount collected."
-        },
-        "remaining": {
-          "type": "number",
-          "description": "Amount remaining."
-        },
-        "netValue": {
-          "type": "number",
-          "description": "Net value of the installment."
-        },
-        "notes": {
-          "type": "string",
-          "description": "Notes for the installment."
-        },
-        "uid": {
-          "type": "string",
-          "description": "User ID of the owner."
-        },
-        "createdAt": {
-          "type": "string",
-          "format": "date-time",
-          "description": "Timestamp when the record was created."
-        }
+        "customer": { "type": "string", "description": "Customer name" },
+        "project": { "type": "string", "description": "Project name" },
+        "unitCode": { "type": "string", "description": "Unit code" },
+        "type": { "type": "string", "description": "Installment type" },
+        "installmentCode": { "type": "string", "description": "Installment code" },
+        "date": { "type": "string", "format": "date", "description": "Due date" },
+        "value": { "type": "number", "description": "Installment value" },
+        "netValue": { "type": "number", "description": "Net value" },
+        "collected": { "type": "number", "description": "Collected amount" },
+        "remaining": { "type": "number", "description": "Remaining amount" },
+        "commercialPaper": { "type": "string", "description": "Commercial paper number" },
+        "notes": { "type": "string", "description": "Notes" },
+        "uid": { "type": "string", "description": "User ID of the owner" },
+        "updatedAt": { "type": "string", "format": "date-time", "description": "Last update timestamp" }
       },
-      "required": ["id", "unit", "project", "client", "dueDate", "value", "collected", "remaining", "uid"]
+      "required": ["customer", "project", "unitCode", "installmentCode", "date", "value", "netValue", "collected", "remaining", "uid"]
     }
   },
   "firestore": {
-    "/installments/{installmentId}": {
+    "installments": {
       "schema": "Installment",
-      "description": "Collection of installments."
+      "description": "Collection of installment records."
     }
   }
 }
