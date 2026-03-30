@@ -39,6 +39,52 @@ export default function App() {
     const file = acceptedFiles[0];
     if (!file) return;
 
+    // Handle Excel files
+    if (file.name.endsWith('.xlsx') || file.name.endsWith('.xls')) {
+      const reader = new FileReader();
+      reader.onload = (e) => {
+        try {
+          const data = new Uint8Array(e.target?.result as ArrayBuffer);
+          const workbook = XLSX.read(data, { type: 'array' });
+          const firstSheetName = workbook.SheetNames[0];
+          const worksheet = workbook.Sheets[firstSheetName];
+          const jsonData = XLSX.utils.sheet_to_json(worksheet);
+          
+          // Map Excel columns to our data structure (with more flexible mapping)
+          const mappedData: InstallmentData[] = jsonData.map((row: any) => {
+            const getVal = (keys: string[]) => {
+              const key = keys.find(k => row[k] !== undefined);
+              return key ? row[key] : undefined;
+            };
+
+            return {
+              customer: getVal(['العميل', 'Customer', 'اسم العميل', 'الاسم']) || '',
+              project: getVal(['المشروع', 'Project', 'اسم المشروع']) || '',
+              unitCode: getVal(['الوحدة', 'Unit', 'رقم الوحدة', 'كود الوحدة']) || '',
+              type: getVal(['النوع', 'Type', 'نوع القسط']) || 'قسط',
+              installmentCode: getVal(['كود القسط', 'Installment Code', 'رقم القسط']) || '',
+              date: getVal(['التاريخ', 'Date', 'تاريخ الاستحقاق']) || '',
+              value: Number(getVal(['القيمة', 'Value', 'قيمة القسط']) || 0),
+              netValue: Number(getVal(['صافي القيمة', 'Net Value', 'الصافي']) || 0),
+              collected: Number(getVal(['المحصل', 'Collected', 'المسدد']) || 0),
+              remaining: Number(getVal(['المتبقي', 'Remaining', 'الرصيد']) || 0),
+              commercialPaper: getVal(['الورقة التجارية', 'Commercial Paper', 'شيك', 'سند']) || '',
+              notes: getVal(['ملاحظات', 'Notes', 'البيان']) || ''
+            };
+          });
+
+          if (mappedData.length > 0) {
+            setData(mappedData);
+          }
+        } catch (error) {
+          console.error("Error parsing Excel:", error);
+          alert("حدث خطأ أثناء تحليل ملف الإكسيل. يرجى التأكد من تنسيق الملف.");
+        }
+      };
+      reader.readAsArrayBuffer(file);
+      return;
+    }
+
     setIsAnalyzing(true);
     try {
       if (!isAIConfigured()) {
@@ -64,6 +110,8 @@ export default function App() {
       if (error.message === "MISSING_API_KEY") {
         alert("تنبيه: مفتاح GEMINI_API_KEY غير متوفر. يرجى إضافته من قائمة الإعدادات (Settings) لتفعيل ميزة تحليل الملفات بالذكاء الاصطناعي.");
         setShowAiError(true);
+      } else if (error.status === 503 || (error.message && error.message.includes("503"))) {
+        alert("خادم الذكاء الاصطناعي مشغول حالياً (ضغط كبير). يرجى المحاولة مرة أخرى بعد قليل.");
       } else {
         alert("حدث خطأ أثناء رفع أو تحليل الملف. يرجى المحاولة مرة أخرى.");
       }
@@ -74,7 +122,11 @@ export default function App() {
 
   const { getRootProps, getInputProps, isDragActive } = useDropzone({ 
     onDrop,
-    accept: { 'application/pdf': ['.pdf'] },
+    accept: { 
+      'application/pdf': ['.pdf'],
+      'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet': ['.xlsx'],
+      'application/vnd.ms-excel': ['.xls']
+    },
     multiple: false
   } as any);
 
@@ -243,51 +295,86 @@ export default function App() {
           <button 
             type="button"
             onClick={handleExportExcel}
-            className="flex items-center gap-2 px-6 py-3 bg-emerald-600 text-white rounded-xl shadow-md hover:bg-emerald-700 transition-all active:scale-95 group cursor-pointer"
+            className="flex items-center gap-2 px-4 py-2 bg-emerald-600 text-white rounded-lg shadow-sm hover:bg-emerald-700 transition-all active:scale-95 group cursor-pointer text-sm"
           >
-            <FileSpreadsheet size={20} className="group-hover:scale-110 transition-transform" />
+            <FileSpreadsheet size={18} className="group-hover:scale-110 transition-transform" />
             <span className="font-bold">تصدير Excel</span>
           </button>
           <button 
             type="button"
             onClick={handlePrint}
-            className="flex items-center gap-2 px-6 py-3 bg-white border-2 border-slate-200 rounded-xl shadow-sm hover:bg-slate-50 hover:border-indigo-300 transition-all active:scale-95 group cursor-pointer"
+            className="flex items-center gap-2 px-4 py-2 bg-white border border-slate-200 rounded-lg shadow-sm hover:bg-slate-50 hover:border-indigo-300 transition-all active:scale-95 group cursor-pointer text-sm"
           >
-            <Printer size={20} className="text-indigo-600 group-hover:scale-110 transition-transform" />
+            <Printer size={18} className="text-indigo-600 group-hover:scale-110 transition-transform" />
             <span className="font-bold text-slate-700">طباعة PDF</span>
           </button>
           <div {...getRootProps()} className={cn(
-            "flex items-center gap-2 px-6 py-3 bg-indigo-600 text-white rounded-xl shadow-md cursor-pointer hover:bg-indigo-700 transition-all active:scale-95",
+            "flex items-center gap-2 px-4 py-2 bg-indigo-600 text-white rounded-lg shadow-sm cursor-pointer hover:bg-indigo-700 transition-all active:scale-95 text-sm",
             isDragActive && "bg-indigo-800 scale-105"
           )}>
             <input {...getInputProps()} />
-            {isAnalyzing ? <Loader2 className="animate-spin" size={20} /> : <Upload size={20} />}
-            <span className="font-bold">{isAnalyzing ? "جاري التحليل..." : "رفع ملف PDF"}</span>
+            {isAnalyzing ? <Loader2 className="animate-spin" size={18} /> : <Upload size={18} />}
+            <span className="font-bold">{isAnalyzing ? "جاري التحليل..." : "رفع ملف PDF / Excel"}</span>
           </div>
         </div>
       </header>
 
-      {/* Print Summary Section */}
-      <div className="hidden print:block mb-12">
-        <h2 className="text-2xl font-bold mb-6 border-r-4 border-indigo-600 pr-4">ملخص التحصيل العام</h2>
-        <div className="grid grid-cols-4 gap-6">
-          <div className="p-6 bg-slate-50 border-2 border-slate-200 rounded-xl">
-            <p className="text-sm text-slate-500 mb-2">إجمالي القيمة الصافية</p>
-            <p className="text-2xl font-black text-slate-900">{formatCurrency(stats.totalNetValue)}</p>
-          </div>
-          <div className="p-6 bg-emerald-50 border-2 border-emerald-200 rounded-xl">
-            <p className="text-sm text-emerald-600 mb-2">إجمالي المحصل الفعلي</p>
-            <p className="text-2xl font-black text-emerald-700">{formatCurrency(stats.totalCollected)}</p>
-          </div>
-          <div className="p-6 bg-rose-50 border-2 border-rose-200 rounded-xl">
-            <p className="text-sm text-rose-600 mb-2">إجمالي المتبقي</p>
-            <p className="text-2xl font-black text-rose-700">{formatCurrency(stats.totalRemaining)}</p>
-          </div>
-          <div className="p-6 bg-indigo-50 border-2 border-indigo-200 rounded-xl">
-            <p className="text-sm text-indigo-600 mb-2">نسبة التحصيل</p>
-            <p className="text-2xl font-black text-indigo-700">{stats.collectionRate.toFixed(1)}%</p>
+      {/* Print-only First Page (KPIs + Charts) */}
+      <div className="hidden print:block print:break-after-page">
+        <div className="mb-12">
+          <h2 className="text-2xl font-bold mb-6 border-r-4 border-indigo-600 pr-4">ملخص التحصيل العام</h2>
+          <div className="grid grid-cols-4 gap-6">
+            <div className="p-6 bg-slate-50 border-2 border-slate-200 rounded-xl">
+              <p className="text-sm text-slate-500 mb-2">إجمالي القيمة الصافية</p>
+              <p className="text-2xl font-black text-slate-900">{formatCurrency(stats.totalNetValue)}</p>
+            </div>
+            <div className="p-6 bg-emerald-50 border-2 border-emerald-200 rounded-xl">
+              <p className="text-sm text-emerald-600 mb-2">إجمالي المحصل الفعلي</p>
+              <p className="text-2xl font-black text-emerald-700">{formatCurrency(stats.totalCollected)}</p>
+            </div>
+            <div className="p-6 bg-rose-50 border-2 border-rose-200 rounded-xl">
+              <p className="text-sm text-rose-600 mb-2">إجمالي المتبقي</p>
+              <p className="text-2xl font-black text-rose-700">{formatCurrency(stats.totalRemaining)}</p>
+            </div>
+            <div className="p-6 bg-indigo-50 border-2 border-indigo-200 rounded-xl">
+              <p className="text-sm text-indigo-600 mb-2">نسبة التحصيل</p>
+              <p className="text-2xl font-black text-indigo-700">{stats.collectionRate.toFixed(1)}%</p>
+            </div>
           </div>
         </div>
+
+        <h2 className="text-2xl font-bold mb-6 border-r-4 border-indigo-600 pr-4">التحليل البياني والتدفقات</h2>
+        <div className="grid grid-cols-1 gap-8 mb-8">
+          <div className="bg-white p-6 rounded-2xl border border-slate-200 print:break-inside-avoid">
+            <h3 className="text-lg font-semibold mb-6">توزيع التحصيل حسب المشروع</h3>
+            <div className="h-[450px] w-full">
+              <ResponsiveContainer width="100%" height="100%">
+                <ComposedChart data={stats.projectStats} layout="vertical" margin={{ top: 20, right: 220, left: 20, bottom: 20 }}>
+                  <CartesianGrid strokeDasharray="3 3" horizontal={false} stroke="#f1f5f9" />
+                  <XAxis type="number" tickFormatter={(v) => v >= 1000000 ? `${(v/1000000).toFixed(1)}M` : v >= 1000 ? `${(v/1000).toFixed(0)}K` : v} />
+                  <YAxis dataKey="name" type="category" width={180} tick={{ fontSize: 11, fontWeight: 700 }} />
+                  <Bar dataKey="collected" name="المحصل الفعلي" stackId="a" fill="#10b981" barSize={24} />
+                  <Bar dataKey="remaining" name="المتبقي" stackId="a" fill="#f43f5e" barSize={24} />
+                </ComposedChart>
+              </ResponsiveContainer>
+            </div>
+          </div>
+          <div className="bg-white p-6 rounded-2xl border border-slate-200 print:break-inside-avoid">
+            <h3 className="text-lg font-semibold mb-6">التدفق المالي الشهري</h3>
+            <div className="h-[400px] w-full">
+              <ResponsiveContainer width="100%" height="100%">
+                <AreaChart data={stats.monthlyStats} margin={{ top: 50, right: 30, left: 0, bottom: 0 }}>
+                  <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f1f5f9" />
+                  <XAxis dataKey="month" tick={{ fontSize: 12, fontWeight: 600 }} />
+                  <YAxis tickFormatter={(v) => v >= 1000000 ? `${(v/1000000).toFixed(1)}M` : v >= 1000 ? `${(v/1000).toFixed(0)}K` : v} />
+                  <Area type="monotone" dataKey="collected" name="المحصل" stroke="#10b981" fill="#10b981" fillOpacity={0.1} />
+                  <Area type="monotone" dataKey="remaining" name="المتبقي" stroke="#f43f5e" fill="#f43f5e" fillOpacity={0.1} />
+                </AreaChart>
+              </ResponsiveContainer>
+            </div>
+          </div>
+        </div>
+        <div className="page-break" />
       </div>
 
       {/* KPI Cards (Screen Only) */}
@@ -322,11 +409,8 @@ export default function App() {
         />
       </div>
 
-      {/* Charts Section */}
-      {/* Charts Section Title for Print */}
-      <h2 className="hidden print:block text-2xl font-bold mb-6 border-r-4 border-indigo-600 pr-4">التحليل البياني والتدفقات</h2>
-
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-8 mb-8 print:grid-cols-1 print:break-after-page">
+      {/* Charts Section (Screen Only) */}
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-8 mb-8 print:hidden">
         <div className="bg-white p-6 rounded-2xl shadow-sm border border-slate-100 print:shadow-none print:border-slate-300">
           <h3 className="text-lg font-semibold mb-6 flex items-center gap-2">
             <TrendingUp size={20} className="text-indigo-600" />

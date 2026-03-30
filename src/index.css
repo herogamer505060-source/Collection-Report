@@ -12,9 +12,15 @@
 }
 
 @media print {
+  @page {
+    margin: 0.5cm;
+    size: A4 landscape;
+  }
+
   body {
     background-color: white !important;
     padding: 0 !important;
+    margin: 0 !important;
     color: black !important;
     width: 100% !important;
     height: auto !important;
@@ -36,7 +42,7 @@
   }
 
   .print\:border-slate-300 {
-    border-color: #cbd5e1 !important;
+    border: 1px solid #cbd5e1 !important;
   }
 
   .print\:p-0 {
@@ -58,14 +64,21 @@
     overflow: visible !important;
     display: block !important;
     position: static !important;
+    background: white !important;
+  }
+
+  /* Ensure all charts and cards are visible */
+  .bg-white {
+    background-color: white !important;
   }
 
   table {
     width: 100% !important;
     border-collapse: collapse !important;
-    font-size: 9pt !important; /* Increased for better readability */
-    table-layout: auto !important; /* Auto layout for better content fit */
+    font-size: 8pt !important;
+    table-layout: fixed !important;
     margin-bottom: 1rem !important;
+    border: 2px solid #000 !important;
   }
 
   thead {
@@ -77,51 +90,35 @@
   }
 
   th, td {
-    border: 1px solid #1e293b !important; /* Very dark border for maximum contrast */
-    padding: 8px 10px !important;
+    border: 1px solid #000 !important;
+    padding: 4px 6px !important;
     word-wrap: break-word !important;
     text-align: right !important;
+    color: black !important;
   }
 
   th {
     background-color: #f1f5f9 !important;
-    color: #0f172a !important;
-    font-weight: 900 !important;
-    text-transform: uppercase !important;
-  }
-
-  tfoot td {
-    background-color: #f8fafc !important;
-    border-top: 2px solid #0f172a !important;
-    font-weight: 900 !important;
+    font-weight: bold !important;
   }
 
   .print-summary-grid {
     display: grid !important;
     grid-template-columns: repeat(4, 1fr) !important;
-    gap: 1rem !important;
-    margin-bottom: 2rem !important;
+    gap: 10px !important;
+    margin-bottom: 20px !important;
   }
 
-  @page {
-    margin: 1cm;
-    size: A4 landscape;
+  .print-summary-grid > div {
+    border: 1px solid #cbd5e1 !important;
+    padding: 10px !important;
+    border-radius: 8px !important;
   }
-
-  /* Status badge colors in print */
-  .bg-indigo-100 { background-color: #e0e7ff !important; border: 1px solid #c7d2fe !important; }
-  .text-indigo-700 { color: #3730a3 !important; }
-  .bg-emerald-100 { background-color: #d1fae5 !important; border: 1px solid #a7f3d0 !important; }
-  .text-emerald-700 { color: #065f46 !important; }
-  .bg-amber-100 { background-color: #fef3c7 !important; border: 1px solid #fde68a !important; }
-  .text-amber-700 { color: #92400e !important; }
-  .bg-rose-100 { background-color: #fee2e2 !important; border: 1px solid #fecaca !important; }
-  .text-rose-700 { color: #991b1b !important; }
 
   /* Ensure charts are visible and clear in print */
   .recharts-responsive-container {
     width: 100% !important;
-    height: 320px !important;
+    height: 350px !important;
     display: block !important;
     page-break-inside: avoid !important;
   }
@@ -131,28 +128,40 @@
   }
 
   .grid-cols-1.lg\:grid-cols-2 {
-    display: block !important; /* Stack charts vertically in print */
+    display: flex !important;
+    flex-direction: column !important;
   }
 
   .grid-cols-1.lg\:grid-cols-2 > div {
-    margin-bottom: 2rem !important;
+    width: 100% !important;
+    margin-bottom: 30px !important;
     page-break-inside: avoid !important;
+    border: 1px solid #cbd5e1 !important;
   }
 
-  /* Force table to start on a new page if it's too close to charts */
   .print\:break-before-page {
     page-break-before: always !important;
+    break-before: page !important;
   }
 
   .print\:break-after-page {
     page-break-after: always !important;
+    break-after: page !important;
   }
 
-  /* Signature section at the end of the report */
+  .page-break {
+    page-break-after: always !important;
+    break-after: page !important;
+    display: block !important;
+    height: 0 !important;
+    margin: 0 !important;
+    padding: 0 !important;
+  }
+
   .print-footer-signatures {
     display: flex !important;
     justify-content: space-between !important;
-    margin-top: 3rem !important;
+    margin-top: 40px !important;
     page-break-inside: avoid !important;
   }
 }
