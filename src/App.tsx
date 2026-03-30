@@ -82,6 +82,8 @@ const SAMPLE_DATA: InstallmentData[] = [
   { customer: "محمد عبدالجيد غمرى شعراوى", project: "Caza", unitCode: "Caza-G28", type: "قسط", installmentCode: "2025121302", date: "2026-03-15", value: 156070, netValue: 156070, collected: 156070, remaining: 156070, commercialPaper: "60317000023576", notes: "" },
 ];
 
+const ADMIN_EMAIL = "hero.gamer505060@gmail.com";
+
 export default function App() {
   return (
     <ErrorBoundary>
@@ -100,6 +102,8 @@ function MainApp() {
   const [searchTerm, setSearchTerm] = useState("");
   const [filterProject, setFilterProject] = useState("الكل");
   const [activeTab, setActiveTab] = useState<"dashboard" | "reports">("dashboard");
+
+  const isAdmin = useMemo(() => user?.email === ADMIN_EMAIL, [user]);
 
   // Auth Listener
   useEffect(() => {
@@ -175,6 +179,10 @@ function MainApp() {
   };
 
   const onDrop = useCallback(async (acceptedFiles: File[]) => {
+    if (!isAdmin) {
+      alert("عذراً، لا تملك صلاحية رفع الملفات. هذه الميزة متاحة للمسؤول فقط.");
+      return;
+    }
     const file = acceptedFiles[0];
     if (!file) return;
 
@@ -395,10 +403,18 @@ function MainApp() {
   }, [filteredData]);
 
   const handlePrint = () => {
+    if (!isAdmin) {
+      alert("عذراً، لا تملك صلاحية الطباعة. هذه الميزة متاحة للمسؤول فقط.");
+      return;
+    }
     window.print();
   };
 
   const handleExportExcel = () => {
+    if (!isAdmin) {
+      alert("عذراً، لا تملك صلاحية التصدير. هذه الميزة متاحة للمسؤول فقط.");
+      return;
+    }
     const exportData = filteredData.map(item => ({
       'العميل': item.customer,
       'المشروع': item.project,
@@ -512,14 +528,16 @@ function MainApp() {
               <span>مفتاح AI غير مفعل. يرجى ضبطه من الإعدادات.</span>
             </div>
           )}
-          <div {...getRootProps()} className={cn(
-            "flex items-center gap-2 px-4 py-2 bg-indigo-600 text-white rounded-lg shadow-sm cursor-pointer hover:bg-indigo-700 transition-all active:scale-95 text-sm",
-            isDragActive && "bg-indigo-800 scale-105"
-          )}>
-            <input {...getInputProps()} />
-            {isAnalyzing ? <Loader2 className="animate-spin" size={18} /> : <Upload size={18} />}
-            <span className="font-bold">{isAnalyzing ? "جاري التحليل..." : "رفع ملف PDF / Excel"}</span>
-          </div>
+          {isAdmin && (
+            <div {...getRootProps()} className={cn(
+              "flex items-center gap-2 px-4 py-2 bg-indigo-600 text-white rounded-lg shadow-sm cursor-pointer hover:bg-indigo-700 transition-all active:scale-95 text-sm",
+              isDragActive && "bg-indigo-800 scale-105"
+            )}>
+              <input {...getInputProps()} />
+              {isAnalyzing ? <Loader2 className="animate-spin" size={18} /> : <Upload size={18} />}
+              <span className="font-bold">{isAnalyzing ? "جاري التحليل..." : "رفع ملف PDF / Excel"}</span>
+            </div>
+          )}
         </div>
       </header>
 
@@ -581,6 +599,7 @@ function MainApp() {
             formatCurrency={formatCurrency}
             handlePrint={handlePrint}
             handleExportExcel={handleExportExcel}
+            isAdmin={isAdmin}
           />
         )}
       </main>
@@ -883,7 +902,7 @@ function DashboardView({
   );
 }
 
-function ReportsView({ stats, filteredData, formatCurrency, handlePrint, handleExportExcel }: any) {
+function ReportsView({ stats, filteredData, formatCurrency, handlePrint, handleExportExcel, isAdmin }: any) {
   return (
     <div className="space-y-8">
       {/* Reports Header */}
@@ -892,22 +911,24 @@ function ReportsView({ stats, filteredData, formatCurrency, handlePrint, handleE
           <h2 className="text-xl font-bold text-slate-800">مركز التقارير والطباعة</h2>
           <p className="text-slate-500 text-sm">استخرج تقارير مفصلة وقم بطباعتها أو تصديرها</p>
         </div>
-        <div className="flex gap-3">
-          <button 
-            onClick={handleExportExcel}
-            className="flex items-center gap-2 px-6 py-2.5 bg-emerald-600 text-white rounded-xl shadow-md hover:bg-emerald-700 transition-all active:scale-95 font-bold"
-          >
-            <FileSpreadsheet size={20} />
-            تصدير Excel
-          </button>
-          <button 
-            onClick={handlePrint}
-            className="flex items-center gap-2 px-6 py-2.5 bg-indigo-600 text-white rounded-xl shadow-md hover:bg-indigo-700 transition-all active:scale-95 font-bold"
-          >
-            <Printer size={20} />
-            طباعة التقرير (PDF)
-          </button>
-        </div>
+        {isAdmin && (
+          <div className="flex gap-3">
+            <button 
+              onClick={handleExportExcel}
+              className="flex items-center gap-2 px-6 py-2.5 bg-emerald-600 text-white rounded-xl shadow-md hover:bg-emerald-700 transition-all active:scale-95 font-bold"
+            >
+              <FileSpreadsheet size={20} />
+              تصدير Excel
+            </button>
+            <button 
+              onClick={handlePrint}
+              className="flex items-center gap-2 px-6 py-2.5 bg-indigo-600 text-white rounded-xl shadow-md hover:bg-indigo-700 transition-all active:scale-95 font-bold"
+            >
+              <Printer size={20} />
+              طباعة التقرير (PDF)
+            </button>
+          </div>
+        )}
       </div>
 
       {/* Summary Stats for Reports */}

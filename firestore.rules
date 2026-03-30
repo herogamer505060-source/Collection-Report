@@ -80,9 +80,9 @@ service cloud.firestore {
 
     match /installments/{installmentId} {
       allow read: if isDocOwner() || isAdmin();
-      allow create: if isAuthenticated() && isValidInstallment(request.resource.data);
-      allow update: if isAuthenticated() && isValidInstallment(request.resource.data) && (isDocOwner() || isAdmin());
-      allow delete: if isDocOwner() || isAdmin();
+      allow create: if isAdmin() && isValidInstallment(request.resource.data);
+      allow update: if isAdmin() && isValidInstallment(request.resource.data);
+      allow delete: if isAdmin();
     }
 
     match /users/{userId} {
