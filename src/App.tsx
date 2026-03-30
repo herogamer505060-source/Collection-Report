@@ -275,20 +275,20 @@ function MainApp() {
 
     if (newData.length > 0) {
       if (user) {
-        // Save to Firestore
+        // Save to Firestore with deterministic IDs to prevent duplication
         try {
-          // Clear old data for this user if needed, or just append
-          // For this app, we'll replace the current view with the new upload
-          // But in Firestore, we should probably delete old ones first if it's a "new upload"
-          // Or just add them. Let's add them with new IDs.
           const batchPromises = newData.map(item => {
-            const newDocRef = doc(collection(db, "installments"));
-            return setDoc(newDocRef, {
+            // Create a unique deterministic ID based on customer, project, unit and installment code
+            // This ensures that re-uploading the same data updates existing records instead of duplicating them
+            const deterministicId = `${item.customer}_${item.project}_${item.unitCode}_${item.installmentCode}`.replace(/\s+/g, '_');
+            const docRef = doc(db, "installments", deterministicId);
+            
+            return setDoc(docRef, {
               ...item,
-              id: newDocRef.id,
+              id: deterministicId,
               uid: user.uid,
-              createdAt: new Date().toISOString()
-            });
+              updatedAt: new Date().toISOString()
+            }, { merge: true });
           });
           await Promise.all(batchPromises);
         } catch (error) {
@@ -656,28 +656,28 @@ function MainApp() {
         <div className="overflow-x-auto">
           <table className="w-full text-right border-collapse border border-slate-200">
             <thead>
-              <tr className="bg-slate-50 text-slate-900 border-b-2 border-slate-300">
-                <th className="px-4 py-3 font-bold border">العميل</th>
-                <th className="px-4 py-3 font-bold border">المشروع</th>
-                <th className="px-4 py-3 font-bold border">الوحدة</th>
-                <th className="px-4 py-3 font-bold border">التاريخ</th>
-                <th className="px-4 py-3 font-bold border">صافي القيمة</th>
-                <th className="px-4 py-3 font-bold border text-center">المحصل</th>
-                <th className="px-4 py-3 font-bold border text-center">المتبقي</th>
-                <th className="px-4 py-3 font-bold border">الورقة التجارية</th>
+              <tr className="bg-slate-50 text-slate-900 border-b-2 border-slate-300 text-xs">
+                <th className="px-3 py-3 font-black border text-right">العميل</th>
+                <th className="px-3 py-3 font-black border text-right">المشروع</th>
+                <th className="px-3 py-3 font-black border text-right">الوحدة</th>
+                <th className="px-3 py-3 font-black border text-right">التاريخ</th>
+                <th className="px-3 py-3 font-black border text-right">صافي القيمة</th>
+                <th className="px-3 py-3 font-black border text-center">المحصل</th>
+                <th className="px-3 py-3 font-black border text-center">المتبقي</th>
+                <th className="px-3 py-3 font-black border text-right">الورقة التجارية</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-200">
               {filteredData.map((item, idx) => (
-                <tr key={idx} className="border-b">
-                  <td className="px-4 py-2 border">{item.customer}</td>
-                  <td className="px-4 py-2 border">{item.project}</td>
-                  <td className="px-4 py-2 border">{item.unitCode}</td>
-                  <td className="px-4 py-2 border">{item.date}</td>
-                  <td className="px-4 py-2 border font-bold">{formatCurrency(item.netValue)}</td>
-                  <td className="px-4 py-2 border text-center">{formatCurrency(item.collected)}</td>
-                  <td className="px-4 py-2 border text-center">{formatCurrency(item.remaining)}</td>
-                  <td className="px-4 py-2 border text-xs">{item.commercialPaper || "-"}</td>
+                <tr key={idx} className="border-b text-xs">
+                  <td className="px-3 py-2 border font-bold">{item.customer}</td>
+                  <td className="px-3 py-2 border">{item.project}</td>
+                  <td className="px-3 py-2 border font-mono">{item.unitCode}</td>
+                  <td className="px-3 py-2 border">{item.date}</td>
+                  <td className="px-3 py-2 border font-black">{formatCurrency(item.netValue)}</td>
+                  <td className="px-3 py-2 border text-center font-black text-emerald-700">{formatCurrency(item.collected)}</td>
+                  <td className="px-3 py-2 border text-center font-black text-rose-700">{formatCurrency(item.remaining)}</td>
+                  <td className="px-3 py-2 border font-mono text-[10px]">{item.commercialPaper || "-"}</td>
                 </tr>
               ))}
             </tbody>
@@ -799,17 +799,17 @@ function DashboardView({
         <div className="overflow-x-auto">
           <table className="w-full text-right border-collapse">
             <thead>
-              <tr className="bg-slate-50 text-slate-500 text-sm uppercase tracking-wider">
-                <th className="px-6 py-4 font-semibold">العميل</th>
-                <th className="px-6 py-4 font-semibold">المشروع</th>
-                <th className="px-6 py-4 font-semibold">الوحدة</th>
-                <th className="px-6 py-4 font-semibold">التاريخ</th>
-                <th className="px-6 py-4 font-semibold">صافي القيمة</th>
-                <th className="px-6 py-4 font-semibold text-center">المحصل</th>
-                <th className="px-6 py-4 font-semibold text-center">المتبقي</th>
-                <th className="px-6 py-4 font-semibold">الورقة التجارية</th>
-                <th className="px-6 py-4 font-semibold">الحالة</th>
-                <th className="px-6 py-4 font-semibold min-w-[250px]">ملاحظات</th>
+              <tr className="bg-slate-50 text-slate-500 text-xs uppercase tracking-wider border-b border-slate-200">
+                <th className="px-6 py-4 font-bold text-right min-w-[180px]">العميل</th>
+                <th className="px-6 py-4 font-bold text-right">المشروع</th>
+                <th className="px-6 py-4 font-bold text-right">الوحدة</th>
+                <th className="px-6 py-4 font-bold text-right">التاريخ</th>
+                <th className="px-6 py-4 font-bold text-right">صافي القيمة</th>
+                <th className="px-6 py-4 font-bold text-center">المحصل</th>
+                <th className="px-6 py-4 font-bold text-center">المتبقي</th>
+                <th className="px-6 py-4 font-bold text-right min-w-[150px]">الورقة التجارية</th>
+                <th className="px-6 py-4 font-bold text-center">الحالة</th>
+                <th className="px-6 py-4 font-bold text-right min-w-[250px]">ملاحظات</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100">
@@ -820,25 +820,25 @@ function DashboardView({
                     initial={{ opacity: 0, y: 10 }}
                     animate={{ opacity: 1, y: 0 }}
                     transition={{ delay: idx * 0.05 }}
-                    className="hover:bg-slate-50 transition-colors"
+                    className="hover:bg-slate-50 transition-colors group"
                   >
-                    <td className="px-6 py-4 font-medium text-slate-800">{item.customer}</td>
-                    <td className="px-6 py-4 text-slate-600">{item.project}</td>
-                    <td className="px-6 py-4 text-slate-600">{item.unitCode}</td>
-                    <td className="px-6 py-4 text-slate-600">{item.date}</td>
-                    <td className="px-6 py-4 text-slate-900 font-bold">{formatCurrency(item.netValue)}</td>
-                    <td className="px-6 py-4 text-emerald-600 font-semibold text-center">{formatCurrency(item.collected)}</td>
-                    <td className="px-6 py-4 text-rose-600 font-semibold text-center">{formatCurrency(item.remaining)}</td>
-                    <td className="px-6 py-4 text-indigo-600 font-bold text-xs">{item.commercialPaper || "-"}</td>
-                    <td className="px-6 py-4">
+                    <td className="px-6 py-4 font-bold text-slate-900">{item.customer}</td>
+                    <td className="px-6 py-4 text-slate-600 text-sm">{item.project}</td>
+                    <td className="px-6 py-4 text-slate-600 text-sm font-mono">{item.unitCode}</td>
+                    <td className="px-6 py-4 text-slate-500 text-sm">{item.date}</td>
+                    <td className="px-6 py-4 text-slate-900 font-black">{formatCurrency(item.netValue)}</td>
+                    <td className="px-6 py-4 text-emerald-600 font-black text-center">{formatCurrency(item.collected)}</td>
+                    <td className="px-6 py-4 text-rose-600 font-black text-center">{formatCurrency(item.remaining)}</td>
+                    <td className="px-6 py-4 text-indigo-600 font-mono text-xs tracking-tighter">{item.commercialPaper || "-"}</td>
+                    <td className="px-6 py-4 text-center">
                       {item.commercialPaper && item.commercialPaper.trim() !== "" ? (
-                        <span className="px-2 py-1 bg-indigo-100 text-indigo-700 text-xs rounded-full font-medium">بانتظار التحصيل (ورقة)</span>
+                        <span className="inline-flex px-2.5 py-1 bg-indigo-100 text-indigo-700 text-[10px] rounded-full font-black uppercase tracking-wider">ورقة مالية</span>
                       ) : item.remaining <= 0 ? (
-                        <span className="px-2 py-1 bg-emerald-100 text-emerald-700 text-xs rounded-full font-medium">مسدد بالكامل</span>
+                        <span className="inline-flex px-2.5 py-1 bg-emerald-100 text-emerald-700 text-[10px] rounded-full font-black uppercase tracking-wider">مسدد</span>
                       ) : item.collected > 0 ? (
-                        <span className="px-2 py-1 bg-amber-100 text-amber-700 text-xs rounded-full font-medium">مسدد جزئياً</span>
+                        <span className="inline-flex px-2.5 py-1 bg-amber-100 text-amber-700 text-[10px] rounded-full font-black uppercase tracking-wider">جزئي</span>
                       ) : (
-                        <span className="px-2 py-1 bg-rose-100 text-rose-700 text-xs rounded-full font-medium">غير مسدد</span>
+                        <span className="inline-flex px-2.5 py-1 bg-rose-100 text-rose-700 text-[10px] rounded-full font-black uppercase tracking-wider">متأخر</span>
                       )}
                     </td>
                     <td className="px-6 py-4 text-slate-500 text-sm">
@@ -846,7 +846,7 @@ function DashboardView({
                         type="text"
                         value={item.notes || ""}
                         onChange={(e) => handleUpdateNote(item.customer, item.installmentCode, e.target.value)}
-                        className="w-full bg-transparent border-b border-transparent hover:border-slate-300 focus:border-indigo-500 focus:outline-none transition-all py-1"
+                        className="w-full bg-transparent border-b border-transparent group-hover:border-slate-200 focus:border-indigo-500 focus:outline-none transition-all py-1 text-xs italic"
                         placeholder="أضف ملاحظة..."
                       />
                     </td>
@@ -970,30 +970,30 @@ function ReportsView({ stats, filteredData, formatCurrency, handlePrint, handleE
         <div className="overflow-x-auto">
           <table className="w-full text-right">
             <thead>
-              <tr className="text-slate-500 text-sm border-b border-slate-100">
-                <th className="pb-4">المشروع</th>
-                <th className="pb-4">المستحق</th>
-                <th className="pb-4">المحصل</th>
-                <th className="pb-4">المتبقي</th>
-                <th className="pb-4">نسبة الإنجاز</th>
+              <tr className="text-slate-500 text-xs font-black uppercase tracking-wider border-b border-slate-100">
+                <th className="pb-4 text-right">المشروع</th>
+                <th className="pb-4 text-right">المستحق</th>
+                <th className="pb-4 text-right">المحصل</th>
+                <th className="pb-4 text-right">المتبقي</th>
+                <th className="pb-4 text-center">نسبة الإنجاز</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-50">
               {stats.projectStats.map((p: any) => (
-                <tr key={p.name}>
-                  <td className="py-4 font-bold">{p.name}</td>
-                  <td className="py-4">{formatCurrency(p.total)}</td>
-                  <td className="py-4 text-emerald-600">{formatCurrency(p.collected)}</td>
-                  <td className="py-4 text-rose-600">{formatCurrency(p.remaining)}</td>
+                <tr key={p.name} className="hover:bg-slate-50/50 transition-colors">
+                  <td className="py-4 font-black text-slate-800">{p.name}</td>
+                  <td className="py-4 font-bold">{formatCurrency(p.total)}</td>
+                  <td className="py-4 text-emerald-600 font-bold">{formatCurrency(p.collected)}</td>
+                  <td className="py-4 text-rose-600 font-bold">{formatCurrency(p.remaining)}</td>
                   <td className="py-4">
-                    <div className="flex items-center gap-2">
-                      <div className="flex-1 h-2 bg-slate-100 rounded-full overflow-hidden">
+                    <div className="flex items-center gap-3 justify-center">
+                      <div className="w-32 h-2 bg-slate-100 rounded-full overflow-hidden">
                         <div 
-                          className="h-full bg-indigo-600 rounded-full" 
+                          className="h-full bg-indigo-600 rounded-full shadow-[0_0_8px_rgba(99,102,241,0.4)]" 
                           style={{ width: `${(p.collected / p.total) * 100}%` }}
                         />
                       </div>
-                      <span className="text-xs font-bold">{((p.collected / p.total) * 100).toFixed(1)}%</span>
+                      <span className="text-xs font-black text-slate-700">{((p.collected / p.total) * 100).toFixed(1)}%</span>
                     </div>
                   </td>
                 </tr>
