@@ -6,12 +6,12 @@
 import React, { useState, useMemo, useCallback } from 'react';
 import { 
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, 
-  AreaChart, Area, LabelList, ComposedChart, Scatter
+  AreaChart, Area, LabelList, ComposedChart, Scatter, PieChart, Pie, Cell
 } from 'recharts';
 import { 
   Upload, TrendingUp, DollarSign, Users, AlertCircle, 
   Download, Printer, Search, CheckCircle2, Loader2,
-  FileSpreadsheet
+  FileSpreadsheet, PieChart as PieChartIcon
 } from 'lucide-react';
 import * as XLSX from 'xlsx';
 import { useDropzone } from 'react-dropzone';
@@ -34,6 +34,14 @@ export default function App() {
   const [showAiError, setShowAiError] = useState(!isAIConfigured());
   const [searchTerm, setSearchTerm] = useState("");
   const [filterProject, setFilterProject] = useState("الكل");
+
+  const handleUpdateNote = (customer: string, installmentCode: string, newNote: string) => {
+    setData(prev => prev.map(item => 
+      (item.customer === customer && item.installmentCode === installmentCode) 
+      ? { ...item, notes: newNote } 
+      : item
+    ));
+  };
 
   const onDrop = useCallback(async (acceptedFiles: File[]) => {
     const file = acceptedFiles[0];
@@ -346,21 +354,39 @@ export default function App() {
         <h2 className="text-2xl font-bold mb-6 border-r-4 border-indigo-600 pr-4">التحليل البياني والتدفقات</h2>
         <div className="grid grid-cols-1 gap-8 mb-8">
           <div className="bg-white p-6 rounded-2xl border border-slate-200 print:break-inside-avoid">
-            <h3 className="text-lg font-semibold mb-6">توزيع التحصيل حسب المشروع</h3>
+            <h3 className="text-lg font-semibold mb-6 flex items-center gap-2">
+              <PieChartIcon size={20} className="text-indigo-600" />
+              توزيع التحصيل حسب المشروع
+            </h3>
             <div className="h-[450px] w-full">
               <ResponsiveContainer width="100%" height="100%">
-                <ComposedChart data={stats.projectStats} layout="vertical" margin={{ top: 20, right: 220, left: 20, bottom: 20 }}>
-                  <CartesianGrid strokeDasharray="3 3" horizontal={false} stroke="#f1f5f9" />
-                  <XAxis type="number" tickFormatter={(v) => v >= 1000000 ? `${(v/1000000).toFixed(1)}M` : v >= 1000 ? `${(v/1000).toFixed(0)}K` : v} />
-                  <YAxis dataKey="name" type="category" width={180} tick={{ fontSize: 11, fontWeight: 700 }} />
-                  <Bar dataKey="collected" name="المحصل الفعلي" stackId="a" fill="#10b981" barSize={24} />
-                  <Bar dataKey="remaining" name="المتبقي" stackId="a" fill="#f43f5e" barSize={24} />
-                </ComposedChart>
+                <PieChart>
+                  <Pie
+                    data={stats.projectStats}
+                    cx="50%"
+                    cy="50%"
+                    innerRadius={80}
+                    outerRadius={140}
+                    paddingAngle={5}
+                    dataKey="collected"
+                    nameKey="name"
+                    label={({ name, percent }) => `${name} (${(percent * 100).toFixed(0)}%)`}
+                  >
+                    {stats.projectStats.map((entry, index) => (
+                      <Cell key={`cell-${index}`} fill={['#6366f1', '#10b981', '#f43f5e', '#f59e0b', '#8b5cf6'][index % 5]} />
+                    ))}
+                  </Pie>
+                  <Tooltip formatter={(value: number) => formatCurrency(value)} />
+                  <Legend />
+                </PieChart>
               </ResponsiveContainer>
             </div>
           </div>
           <div className="bg-white p-6 rounded-2xl border border-slate-200 print:break-inside-avoid">
-            <h3 className="text-lg font-semibold mb-6">التدفق المالي الشهري</h3>
+            <h3 className="text-lg font-semibold mb-6 flex items-center gap-2">
+              <TrendingUp size={20} className="text-indigo-600" />
+              التدفق المالي الشهري
+            </h3>
             <div className="h-[400px] w-full">
               <ResponsiveContainer width="100%" height="100%">
                 <AreaChart data={stats.monthlyStats} margin={{ top: 50, right: 30, left: 0, bottom: 0 }}>
@@ -413,64 +439,30 @@ export default function App() {
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-8 mb-8 print:hidden">
         <div className="bg-white p-6 rounded-2xl shadow-sm border border-slate-100 print:shadow-none print:border-slate-300">
           <h3 className="text-lg font-semibold mb-6 flex items-center gap-2">
-            <TrendingUp size={20} className="text-indigo-600" />
+            <PieChartIcon size={20} className="text-indigo-600" />
             توزيع التحصيل حسب المشروع
           </h3>
-          <div className="h-[500px]">
+          <div className="h-[400px]">
             <ResponsiveContainer width="100%" height="100%">
-              <ComposedChart 
-                data={stats.projectStats} 
-                layout="vertical" 
-                margin={{ top: 20, right: 220, left: 20, bottom: 20 }}
-                barCategoryGap="40%"
-              >
-                <CartesianGrid strokeDasharray="3 3" horizontal={false} stroke="#f1f5f9" />
-                <XAxis 
-                  type="number" 
-                  tickFormatter={(v) => v >= 1000000 ? `${(v/1000000).toFixed(1)}M` : v >= 1000 ? `${(v/1000).toFixed(0)}K` : v}
-                  tick={{ fontSize: 10, fill: '#94a3b8' }}
-                  axisLine={false}
-                  tickLine={false}
-                />
-                <YAxis 
-                  dataKey="name" 
-                  type="category" 
-                  width={180} 
-                  tickFormatter={(v) => v.length > 20 ? v.substring(0, 17) + '...' : v}
-                  tick={{ fontSize: 11, fontWeight: 700, fill: '#1e293b', textAnchor: 'end', dx: -10 }} 
-                  axisLine={false}
-                  tickLine={false}
-                />
-                <Tooltip 
-                  cursor={{ fill: '#f8fafc' }}
-                  contentStyle={{ borderRadius: '12px', border: 'none', boxShadow: '0 10px 15px -3px rgb(0 0 0 / 0.1)', textAlign: 'right' }}
-                  formatter={(value: number) => formatCurrency(value)} 
-                />
-                <Legend verticalAlign="top" align="right" iconType="circle" height={36} />
-                <Bar dataKey="collected" name="المحصل الفعلي" stackId="a" fill="#10b981" barSize={24}>
-                  <LabelList 
-                    dataKey="collected" 
-                    position="center" 
-                    formatter={(v: number) => v > 300000 ? formatCurrency(v) : ''} 
-                    style={{ fontSize: '8px', fontWeight: '800', fill: '#fff', pointerEvents: 'none' }} 
-                  />
-                </Bar>
-                <Bar dataKey="remaining" name="المتبقي" stackId="a" fill="#f43f5e" radius={[0, 4, 4, 0]} barSize={24}>
-                  <LabelList 
-                    dataKey="remaining" 
-                    position="center" 
-                    formatter={(v: number) => v > 300000 ? formatCurrency(v) : ''} 
-                    style={{ fontSize: '8px', fontWeight: '800', fill: '#fff', pointerEvents: 'none' }} 
-                  />
-                  <LabelList 
-                    dataKey="total" 
-                    position="right" 
-                    offset={10}
-                    formatter={(v: number) => formatCurrency(v)} 
-                    style={{ fontSize: '10px', fontWeight: '900', fill: '#1e293b' }} 
-                  />
-                </Bar>
-              </ComposedChart>
+              <PieChart>
+                <Pie
+                  data={stats.projectStats}
+                  cx="50%"
+                  cy="50%"
+                  innerRadius={60}
+                  outerRadius={100}
+                  paddingAngle={5}
+                  dataKey="collected"
+                  nameKey="name"
+                  label={({ name, percent }) => `${name} (${(percent * 100).toFixed(0)}%)`}
+                >
+                  {stats.projectStats.map((entry, index) => (
+                    <Cell key={`cell-${index}`} fill={['#6366f1', '#10b981', '#f43f5e', '#f59e0b', '#8b5cf6'][index % 5]} />
+                  ))}
+                </Pie>
+                <Tooltip formatter={(value: number) => formatCurrency(value)} />
+                <Legend />
+              </PieChart>
             </ResponsiveContainer>
           </div>
         </div>
@@ -480,7 +472,7 @@ export default function App() {
             <TrendingUp size={20} className="text-indigo-600" />
             التدفق المالي الشهري
           </h3>
-          <div className="h-[350px]">
+          <div className="h-[400px]">
             <ResponsiveContainer width="100%" height="100%">
               <AreaChart data={stats.monthlyStats} margin={{ top: 50, right: 30, left: 0, bottom: 0 }}>
                 <defs>
@@ -574,6 +566,7 @@ export default function App() {
                 <th className="px-6 py-4 font-semibold">الوحدة</th>
                 <th className="px-6 py-4 font-semibold">كود القسط</th>
                 <th className="px-6 py-4 font-semibold">التاريخ</th>
+                <th className="px-6 py-4 font-semibold">صافي القيمة</th>
                 <th className="px-6 py-4 font-semibold">المحصل</th>
                 <th className="px-6 py-4 font-semibold">المتبقي</th>
                 <th className="px-6 py-4 font-semibold">الورقة التجارية</th>
@@ -585,7 +578,7 @@ export default function App() {
               <AnimatePresence>
                 {filteredData.map((item, idx) => (
                   <motion.tr 
-                    key={`${item.customer}-${idx}`}
+                    key={`${item.customer}-${item.installmentCode}-${idx}`}
                     initial={{ opacity: 0, y: 10 }}
                     animate={{ opacity: 1, y: 0 }}
                     transition={{ delay: idx * 0.05 }}
@@ -596,6 +589,7 @@ export default function App() {
                     <td className="px-6 py-4 text-slate-600">{item.unitCode}</td>
                     <td className="px-6 py-4 text-slate-500 text-xs">{item.installmentCode}</td>
                     <td className="px-6 py-4 text-slate-600">{item.date}</td>
+                    <td className="px-6 py-4 text-slate-900 font-bold">{formatCurrency(item.netValue)}</td>
                     <td className="px-6 py-4 text-emerald-600 font-semibold">{formatCurrency(item.collected)}</td>
                     <td className="px-6 py-4 text-rose-600 font-semibold">{formatCurrency(item.remaining)}</td>
                     <td className="px-6 py-4 text-indigo-600 font-bold text-xs">{item.commercialPaper || "-"}</td>
@@ -610,7 +604,15 @@ export default function App() {
                         <span className="px-2 py-1 bg-rose-100 text-rose-700 text-xs rounded-full font-medium">غير مسدد</span>
                       )}
                     </td>
-                    <td className="px-6 py-4 text-slate-500 text-sm">{item.notes || "-"}</td>
+                    <td className="px-6 py-4 text-slate-500 text-sm">
+                      <input 
+                        type="text"
+                        value={item.notes || ""}
+                        onChange={(e) => handleUpdateNote(item.customer, item.installmentCode, e.target.value)}
+                        className="w-full bg-transparent border-b border-transparent hover:border-slate-300 focus:border-indigo-500 focus:outline-none transition-all py-1"
+                        placeholder="أضف ملاحظة..."
+                      />
+                    </td>
                   </motion.tr>
                 ))}
               </AnimatePresence>
@@ -618,6 +620,7 @@ export default function App() {
             <tfoot className="bg-slate-50/50 font-bold border-t-2 border-slate-200">
               <tr>
                 <td colSpan={5} className="px-6 py-4 text-slate-700">الإجمالي للمجموعة الحالية</td>
+                <td className="px-6 py-4 text-slate-900">{formatCurrency(totals.netValue)}</td>
                 <td className="px-6 py-4 text-emerald-700">{formatCurrency(totals.collected)}</td>
                 <td className="px-6 py-4 text-rose-700">{formatCurrency(totals.remaining)}</td>
                 <td colSpan={3} className="px-6 py-4"></td>
