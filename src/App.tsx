@@ -6,7 +6,7 @@
 import React, { useState, useMemo, useCallback } from 'react';
 import { 
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, 
-  AreaChart, Area, LabelList
+  AreaChart, Area, LabelList, ComposedChart, Scatter
 } from 'recharts';
 import { 
   Upload, TrendingUp, DollarSign, Users, AlertCircle, 
@@ -99,6 +99,7 @@ export default function App() {
           return sum + item.collected;
         }, 0),
         remaining: pData.reduce((sum, item) => sum + item.remaining, 0),
+        total: pData.reduce((sum, item) => sum + item.netValue, 0),
       };
     });
 
@@ -252,22 +253,28 @@ export default function App() {
             <TrendingUp size={20} className="text-indigo-600" />
             توزيع التحصيل حسب المشروع
           </h3>
-          <div className="h-[350px]">
+          <div className="h-[500px]">
             <ResponsiveContainer width="100%" height="100%">
-              <BarChart 
+              <ComposedChart 
                 data={stats.projectStats} 
                 layout="vertical" 
-                margin={{ top: 5, right: 120, left: 20, bottom: 5 }}
-                barGap={8}
-                barCategoryGap="30%"
+                margin={{ top: 20, right: 220, left: 20, bottom: 20 }}
+                barCategoryGap="40%"
               >
                 <CartesianGrid strokeDasharray="3 3" horizontal={false} stroke="#f1f5f9" />
-                <XAxis type="number" hide padding={{ right: 100 }} />
+                <XAxis 
+                  type="number" 
+                  tickFormatter={(v) => v >= 1000000 ? `${(v/1000000).toFixed(1)}M` : v >= 1000 ? `${(v/1000).toFixed(0)}K` : v}
+                  tick={{ fontSize: 10, fill: '#94a3b8' }}
+                  axisLine={false}
+                  tickLine={false}
+                />
                 <YAxis 
                   dataKey="name" 
                   type="category" 
-                  width={150} 
-                  tick={{ fontSize: 12, fontWeight: 700, fill: '#1e293b', textAnchor: 'end', dx: -10 }} 
+                  width={180} 
+                  tickFormatter={(v) => v.length > 20 ? v.substring(0, 17) + '...' : v}
+                  tick={{ fontSize: 11, fontWeight: 700, fill: '#1e293b', textAnchor: 'end', dx: -10 }} 
                   axisLine={false}
                   tickLine={false}
                 />
@@ -277,25 +284,33 @@ export default function App() {
                   formatter={(value: number) => formatCurrency(value)} 
                 />
                 <Legend verticalAlign="top" align="right" iconType="circle" height={36} />
-                <Bar dataKey="collected" name="المحصل الفعلي" fill="#10b981" radius={[0, 6, 6, 0]} barSize={24}>
+                <Bar dataKey="collected" name="المحصل الفعلي" stackId="a" fill="#10b981" barSize={28}>
                   <LabelList 
                     dataKey="collected" 
-                    position="right" 
-                    offset={12}
-                    formatter={(v: number) => v > 0 ? formatCurrency(v) : ''} 
-                    style={{ fontSize: '11px', fontWeight: '800', fill: '#065f46' }} 
+                    position="center" 
+                    formatter={(v: number) => v > 200000 ? formatCurrency(v) : ''} 
+                    style={{ fontSize: '9px', fontWeight: '800', fill: '#fff' }} 
                   />
                 </Bar>
-                <Bar dataKey="remaining" name="المتبقي" fill="#f43f5e" radius={[0, 6, 6, 0]} barSize={24}>
+                <Bar dataKey="remaining" name="المتبقي" stackId="a" fill="#f43f5e" radius={[0, 6, 6, 0]} barSize={28}>
                   <LabelList 
                     dataKey="remaining" 
-                    position="right" 
-                    offset={12}
-                    formatter={(v: number) => v > 0 ? formatCurrency(v) : ''} 
-                    style={{ fontSize: '11px', fontWeight: '800', fill: '#9f1239' }} 
+                    position="center" 
+                    formatter={(v: number) => v > 200000 ? formatCurrency(v) : ''} 
+                    style={{ fontSize: '9px', fontWeight: '800', fill: '#fff' }} 
                   />
                 </Bar>
-              </BarChart>
+                {/* Invisible scatter to hold the total label at the end of the bar */}
+                <Scatter dataKey="total" fill="transparent">
+                  <LabelList 
+                    dataKey="total" 
+                    position="right" 
+                    offset={15}
+                    formatter={(v: number) => `إجمالي: ${formatCurrency(v)}`} 
+                    style={{ fontSize: '11px', fontWeight: '900', fill: '#4338ca' }} 
+                  />
+                </Scatter>
+              </ComposedChart>
             </ResponsiveContainer>
           </div>
         </div>
@@ -316,7 +331,12 @@ export default function App() {
                 </defs>
                 <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f1f5f9" />
                 <XAxis dataKey="month" tick={{ fontSize: 12, fill: '#64748b' }} axisLine={false} tickLine={false} />
-                <YAxis tick={{ fontSize: 10, fill: '#64748b' }} axisLine={false} tickLine={false} />
+                <YAxis 
+                  tickFormatter={(v) => v >= 1000000 ? `${(v/1000000).toFixed(1)}M` : v >= 1000 ? `${(v/1000).toFixed(0)}K` : v}
+                  tick={{ fontSize: 10, fill: '#64748b' }} 
+                  axisLine={false} 
+                  tickLine={false} 
+                />
                 <Tooltip 
                   contentStyle={{ borderRadius: '12px', border: 'none', boxShadow: '0 10px 15px -3px rgb(0 0 0 / 0.1)' }}
                   formatter={(value: number) => formatCurrency(value)} 
