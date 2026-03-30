@@ -102,16 +102,6 @@
     size: A4 landscape;
   }
 
-  /* Hide charts in print to focus on data table and summary */
-  .recharts-responsive-container, .recharts-wrapper, .recharts-surface {
-    display: none !important;
-  }
-  
-  /* Hide the chart containers entirely */
-  .grid-cols-1.lg\:grid-cols-2 {
-    display: none !important;
-  }
-
   /* Status badge colors in print */
   .bg-indigo-100 { background-color: #e0e7ff !important; }
   .text-indigo-700 { color: #4338ca !important; }
@@ -121,6 +111,23 @@
   .text-amber-700 { color: #b45309 !important; }
   .bg-rose-100 { background-color: #fee2e2 !important; }
   .text-rose-700 { color: #b91c1c !important; }
+
+  /* Ensure charts are visible and clear in print */
+  .recharts-responsive-container {
+    width: 100% !important;
+    height: 350px !important;
+    display: block !important;
+  }
+  
+  .recharts-surface {
+    display: block !important;
+  }
+
+  .grid-cols-1.lg\:grid-cols-2 {
+    display: grid !important;
+    grid-template-columns: 1fr !important;
+    gap: 2rem !important;
+  }
 }
 
 .dir-rtl {

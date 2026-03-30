@@ -6,7 +6,7 @@
 import React, { useState, useMemo, useCallback } from 'react';
 import { 
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, 
-  AreaChart, Area
+  AreaChart, Area, LabelList
 } from 'recharts';
 import { 
   Upload, TrendingUp, DollarSign, Users, AlertCircle, 
@@ -16,7 +16,7 @@ import { useDropzone } from 'react-dropzone';
 import { motion, AnimatePresence } from 'motion/react';
 import { cn } from './lib/utils';
 import { InstallmentData, DashboardStats } from './types';
-import { analyzeCollectionPDF } from './services/geminiService';
+import { analyzeCollectionPDF, isAIConfigured } from './services/geminiService';
 
 // Sample data for initial view - Matching PDF exactly
 const SAMPLE_DATA: InstallmentData[] = [
@@ -29,6 +29,7 @@ const SAMPLE_DATA: InstallmentData[] = [
 export default function App() {
   const [data, setData] = useState<InstallmentData[]>(SAMPLE_DATA);
   const [isAnalyzing, setIsAnalyzing] = useState(false);
+  const [showAiError, setShowAiError] = useState(!isAIConfigured());
   const [searchTerm, setSearchTerm] = useState("");
   const [filterProject, setFilterProject] = useState("الكل");
 
@@ -38,6 +39,9 @@ export default function App() {
 
     setIsAnalyzing(true);
     try {
+      if (!isAIConfigured()) {
+        throw new Error("MISSING_API_KEY");
+      }
       const reader = new FileReader();
       const fileData = await new Promise<string>((resolve, reject) => {
         reader.onload = () => resolve(reader.result as string);
@@ -53,9 +57,14 @@ export default function App() {
       } else {
         alert("لم يتم العثور على بيانات في الملف أو حدث خطأ أثناء التحليل.");
       }
-    } catch (error) {
+    } catch (error: any) {
       console.error("Error analyzing PDF:", error);
-      alert("حدث خطأ أثناء رفع أو تحليل الملف. يرجى المحاولة مرة أخرى.");
+      if (error.message === "MISSING_API_KEY") {
+        alert("تنبيه: مفتاح GEMINI_API_KEY غير متوفر. يرجى إضافته من قائمة الإعدادات (Settings) لتفعيل ميزة تحليل الملفات بالذكاء الاصطناعي.");
+        setShowAiError(true);
+      } else {
+        alert("حدث خطأ أثناء رفع أو تحليل الملف. يرجى المحاولة مرة أخرى.");
+      }
     } finally {
       setIsAnalyzing(false);
     }
@@ -129,6 +138,14 @@ export default function App() {
     return new Intl.NumberFormat('ar-EG', { style: 'currency', currency: 'EGP', maximumFractionDigits: 0 }).format(val);
   };
 
+  const totals = useMemo(() => {
+    return filteredData.reduce((acc, item) => ({
+      collected: acc.collected + item.collected,
+      remaining: acc.remaining + item.remaining,
+      netValue: acc.netValue + item.netValue
+    }), { collected: 0, remaining: 0, netValue: 0 });
+  }, [filteredData]);
+
   const handlePrint = () => {
     window.print();
   };
@@ -148,6 +165,12 @@ export default function App() {
           <p className="text-slate-500">تحليل احترافي لبيانات العملاء والأقساط المستحقة</p>
         </div>
         <div className="flex flex-wrap gap-3">
+          {showAiError && (
+            <div className="flex items-center gap-2 px-4 py-2 bg-amber-50 border border-amber-200 text-amber-800 rounded-lg text-xs animate-pulse">
+              <AlertCircle size={16} />
+              <span>مفتاح AI غير مفعل. يرجى ضبطه من الإعدادات.</span>
+            </div>
+          )}
           <button 
             type="button"
             onClick={handlePrint}
@@ -223,41 +246,108 @@ export default function App() {
       </div>
 
       {/* Charts Section */}
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-8 mb-8 print:break-inside-avoid">
-        <div className="bg-white p-6 rounded-2xl shadow-sm border border-slate-100">
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-8 mb-8 print:break-inside-avoid print:grid-cols-1">
+        <div className="bg-white p-6 rounded-2xl shadow-sm border border-slate-100 print:shadow-none print:border-slate-300">
           <h3 className="text-lg font-semibold mb-6 flex items-center gap-2">
             <TrendingUp size={20} className="text-indigo-600" />
             توزيع التحصيل حسب المشروع
           </h3>
-          <div className="h-[300px]">
+          <div className="h-[350px]">
             <ResponsiveContainer width="100%" height="100%">
-              <BarChart data={stats.projectStats} layout="vertical">
-                <CartesianGrid strokeDasharray="3 3" horizontal={false} />
-                <XAxis type="number" hide />
-                <YAxis dataKey="name" type="category" width={100} tick={{ fontSize: 12 }} />
-                <Tooltip formatter={(value: number) => formatCurrency(value)} />
-                <Legend />
-                <Bar dataKey="collected" name="المحصل الفعلي" fill="#10b981" radius={[0, 4, 4, 0]} />
-                <Bar dataKey="remaining" name="المتبقي" fill="#f43f5e" radius={[0, 4, 4, 0]} />
+              <BarChart 
+                data={stats.projectStats} 
+                layout="vertical" 
+                margin={{ top: 5, right: 120, left: 20, bottom: 5 }}
+                barGap={8}
+                barCategoryGap="30%"
+              >
+                <CartesianGrid strokeDasharray="3 3" horizontal={false} stroke="#f1f5f9" />
+                <XAxis type="number" hide padding={{ right: 100 }} />
+                <YAxis 
+                  dataKey="name" 
+                  type="category" 
+                  width={150} 
+                  tick={{ fontSize: 12, fontWeight: 700, fill: '#1e293b', textAnchor: 'end', dx: -10 }} 
+                  axisLine={false}
+                  tickLine={false}
+                />
+                <Tooltip 
+                  cursor={{ fill: '#f8fafc' }}
+                  contentStyle={{ borderRadius: '12px', border: 'none', boxShadow: '0 10px 15px -3px rgb(0 0 0 / 0.1)', textAlign: 'right' }}
+                  formatter={(value: number) => formatCurrency(value)} 
+                />
+                <Legend verticalAlign="top" align="right" iconType="circle" height={36} />
+                <Bar dataKey="collected" name="المحصل الفعلي" fill="#10b981" radius={[0, 6, 6, 0]} barSize={24}>
+                  <LabelList 
+                    dataKey="collected" 
+                    position="right" 
+                    offset={12}
+                    formatter={(v: number) => v > 0 ? formatCurrency(v) : ''} 
+                    style={{ fontSize: '11px', fontWeight: '800', fill: '#065f46' }} 
+                  />
+                </Bar>
+                <Bar dataKey="remaining" name="المتبقي" fill="#f43f5e" radius={[0, 6, 6, 0]} barSize={24}>
+                  <LabelList 
+                    dataKey="remaining" 
+                    position="right" 
+                    offset={12}
+                    formatter={(v: number) => v > 0 ? formatCurrency(v) : ''} 
+                    style={{ fontSize: '11px', fontWeight: '800', fill: '#9f1239' }} 
+                  />
+                </Bar>
               </BarChart>
             </ResponsiveContainer>
           </div>
         </div>
 
-        <div className="bg-white p-6 rounded-2xl shadow-sm border border-slate-100">
+        <div className="bg-white p-6 rounded-2xl shadow-sm border border-slate-100 print:shadow-none print:border-slate-300">
           <h3 className="text-lg font-semibold mb-6 flex items-center gap-2">
             <TrendingUp size={20} className="text-indigo-600" />
             التدفق المالي الشهري
           </h3>
-          <div className="h-[300px]">
+          <div className="h-[350px]">
             <ResponsiveContainer width="100%" height="100%">
-              <AreaChart data={stats.monthlyStats}>
-                <CartesianGrid strokeDasharray="3 3" vertical={false} />
-                <XAxis dataKey="month" tick={{ fontSize: 12 }} />
-                <YAxis tick={{ fontSize: 12 }} />
-                <Tooltip formatter={(value: number) => formatCurrency(value)} />
-                <Area type="monotone" dataKey="collected" name="المحصل الفعلي" stroke="#10b981" fill="#10b981" fillOpacity={0.1} />
-                <Area type="monotone" dataKey="remaining" name="المتبقي" stroke="#f43f5e" fill="transparent" strokeDasharray="5 5" />
+              <AreaChart data={stats.monthlyStats} margin={{ top: 50, right: 30, left: 0, bottom: 0 }}>
+                <defs>
+                  <linearGradient id="colorCollected" x1="0" y1="0" x2="0" y2="1">
+                    <stop offset="5%" stopColor="#10b981" stopOpacity={0.3}/>
+                    <stop offset="95%" stopColor="#10b981" stopOpacity={0}/>
+                  </linearGradient>
+                </defs>
+                <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f1f5f9" />
+                <XAxis dataKey="month" tick={{ fontSize: 12, fill: '#64748b' }} axisLine={false} tickLine={false} />
+                <YAxis tick={{ fontSize: 10, fill: '#64748b' }} axisLine={false} tickLine={false} />
+                <Tooltip 
+                  contentStyle={{ borderRadius: '12px', border: 'none', boxShadow: '0 10px 15px -3px rgb(0 0 0 / 0.1)' }}
+                  formatter={(value: number) => formatCurrency(value)} 
+                />
+                <Legend verticalAlign="top" align="right" iconType="circle" height={36} />
+                <Area 
+                  type="monotone" 
+                  dataKey="collected" 
+                  name="المحصل الفعلي" 
+                  stroke="#10b981" 
+                  strokeWidth={3}
+                  fillOpacity={1} 
+                  fill="url(#colorCollected)" 
+                >
+                  <LabelList 
+                    dataKey="collected" 
+                    position="top" 
+                    offset={10}
+                    formatter={(v: number) => v > 100000 ? formatCurrency(v) : ''} 
+                    style={{ fontSize: '10px', fontWeight: '700', fill: '#059669' }} 
+                  />
+                </Area>
+                <Area 
+                  type="monotone" 
+                  dataKey="remaining" 
+                  name="المتبقي" 
+                  stroke="#f43f5e" 
+                  strokeWidth={2}
+                  strokeDasharray="5 5"
+                  fill="transparent" 
+                />
               </AreaChart>
             </ResponsiveContainer>
           </div>
@@ -342,6 +432,14 @@ export default function App() {
                 ))}
               </AnimatePresence>
             </tbody>
+            <tfoot className="bg-slate-50/50 font-bold border-t-2 border-slate-200">
+              <tr>
+                <td colSpan={5} className="px-6 py-4 text-slate-700">الإجمالي للمجموعة الحالية</td>
+                <td className="px-6 py-4 text-emerald-700">{formatCurrency(totals.collected)}</td>
+                <td className="px-6 py-4 text-rose-700">{formatCurrency(totals.remaining)}</td>
+                <td colSpan={3} className="px-6 py-4"></td>
+              </tr>
+            </tfoot>
           </table>
         </div>
       </div>

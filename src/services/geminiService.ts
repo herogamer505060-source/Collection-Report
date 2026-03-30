@@ -1,9 +1,25 @@
 import { GoogleGenAI, Type } from "@google/genai";
 import { InstallmentData } from "../types";
 
-const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY || "" });
+let aiInstance: GoogleGenAI | null = null;
+
+function getAI() {
+  if (!aiInstance) {
+    const apiKey = process.env.GEMINI_API_KEY;
+    if (!apiKey) {
+      throw new Error("MISSING_API_KEY");
+    }
+    aiInstance = new GoogleGenAI({ apiKey });
+  }
+  return aiInstance;
+}
+
+export function isAIConfigured(): boolean {
+  return !!process.env.GEMINI_API_KEY;
+}
 
 export async function analyzeCollectionPDF(base64Data: string): Promise<InstallmentData[]> {
+  const ai = getAI();
   const model = "gemini-3-flash-preview";
   
   const prompt = `
