@@ -3,7 +3,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import React, { useState, useMemo, useCallback } from 'react';
+import React, { useState, useMemo, useCallback, useEffect } from 'react';
 import { 
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, 
   AreaChart, Area, LabelList, ComposedChart, Scatter, PieChart, Pie, Cell
@@ -29,11 +29,19 @@ const SAMPLE_DATA: InstallmentData[] = [
 ];
 
 export default function App() {
-  const [data, setData] = useState<InstallmentData[]>(SAMPLE_DATA);
+  const [data, setData] = useState<InstallmentData[]>(() => {
+    const saved = localStorage.getItem('installment_data');
+    return saved ? JSON.parse(saved) : SAMPLE_DATA;
+  });
   const [isAnalyzing, setIsAnalyzing] = useState(false);
   const [showAiError, setShowAiError] = useState(!isAIConfigured());
   const [searchTerm, setSearchTerm] = useState("");
   const [filterProject, setFilterProject] = useState("الكل");
+
+  // Save data to localStorage whenever it changes
+  useEffect(() => {
+    localStorage.setItem('installment_data', JSON.stringify(data));
+  }, [data]);
 
   const handleUpdateNote = (customer: string, installmentCode: string, newNote: string) => {
     setData(prev => prev.map(item => 
@@ -218,7 +226,6 @@ export default function App() {
       'العميل': item.customer,
       'المشروع': item.project,
       'الوحدة': item.unitCode,
-      'كود القسط': item.installmentCode,
       'التاريخ': item.date,
       'صافي القيمة': item.netValue,
       'المحصل': item.collected,
@@ -234,14 +241,13 @@ export default function App() {
       ["تقرير تحصيل الأقساط العقارية"],
       [`تاريخ التقرير: ${new Date().toLocaleDateString('ar-EG')}`],
       [], // Empty row
-      ['العميل', 'المشروع', 'الوحدة', 'كود القسط', 'التاريخ', 'صافي القيمة', 'المحصل', 'المتبقي', 'الورقة التجارية', 'الحالة', 'ملاحظات']
+      ['العميل', 'المشروع', 'الوحدة', 'التاريخ', 'صافي القيمة', 'المحصل', 'المتبقي', 'الورقة التجارية', 'الحالة', 'ملاحظات']
     ];
 
     const dataRows = filteredData.map(item => [
       item.customer,
       item.project,
       item.unitCode,
-      item.installmentCode,
       item.date,
       item.netValue,
       item.collected,
@@ -262,7 +268,6 @@ export default function App() {
       { wch: 30 }, // العميل
       { wch: 20 }, // المشروع
       { wch: 15 }, // الوحدة
-      { wch: 15 }, // كود القسط
       { wch: 15 }, // التاريخ
       { wch: 15 }, // صافي القيمة
       { wch: 15 }, // المحصل
@@ -564,14 +569,13 @@ export default function App() {
                 <th className="px-6 py-4 font-semibold">العميل</th>
                 <th className="px-6 py-4 font-semibold">المشروع</th>
                 <th className="px-6 py-4 font-semibold">الوحدة</th>
-                <th className="px-6 py-4 font-semibold">كود القسط</th>
                 <th className="px-6 py-4 font-semibold">التاريخ</th>
                 <th className="px-6 py-4 font-semibold">صافي القيمة</th>
-                <th className="px-6 py-4 font-semibold">المحصل</th>
-                <th className="px-6 py-4 font-semibold">المتبقي</th>
+                <th className="px-6 py-4 font-semibold text-center">المحصل</th>
+                <th className="px-6 py-4 font-semibold text-center">المتبقي</th>
                 <th className="px-6 py-4 font-semibold">الورقة التجارية</th>
                 <th className="px-6 py-4 font-semibold">الحالة</th>
-                <th className="px-6 py-4 font-semibold">ملاحظات</th>
+                <th className="px-6 py-4 font-semibold min-w-[250px]">ملاحظات</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100">
@@ -587,11 +591,10 @@ export default function App() {
                     <td className="px-6 py-4 font-medium text-slate-800">{item.customer}</td>
                     <td className="px-6 py-4 text-slate-600">{item.project}</td>
                     <td className="px-6 py-4 text-slate-600">{item.unitCode}</td>
-                    <td className="px-6 py-4 text-slate-500 text-xs">{item.installmentCode}</td>
                     <td className="px-6 py-4 text-slate-600">{item.date}</td>
                     <td className="px-6 py-4 text-slate-900 font-bold">{formatCurrency(item.netValue)}</td>
-                    <td className="px-6 py-4 text-emerald-600 font-semibold">{formatCurrency(item.collected)}</td>
-                    <td className="px-6 py-4 text-rose-600 font-semibold">{formatCurrency(item.remaining)}</td>
+                    <td className="px-6 py-4 text-emerald-600 font-semibold text-center">{formatCurrency(item.collected)}</td>
+                    <td className="px-6 py-4 text-rose-600 font-semibold text-center">{formatCurrency(item.remaining)}</td>
                     <td className="px-6 py-4 text-indigo-600 font-bold text-xs">{item.commercialPaper || "-"}</td>
                     <td className="px-6 py-4">
                       {item.commercialPaper && item.commercialPaper.trim() !== "" ? (
@@ -619,10 +622,10 @@ export default function App() {
             </tbody>
             <tfoot className="bg-slate-50/50 font-bold border-t-2 border-slate-200">
               <tr>
-                <td colSpan={5} className="px-6 py-4 text-slate-700">الإجمالي للمجموعة الحالية</td>
+                <td colSpan={4} className="px-6 py-4 text-slate-700">الإجمالي للمجموعة الحالية</td>
                 <td className="px-6 py-4 text-slate-900">{formatCurrency(totals.netValue)}</td>
-                <td className="px-6 py-4 text-emerald-700">{formatCurrency(totals.collected)}</td>
-                <td className="px-6 py-4 text-rose-700">{formatCurrency(totals.remaining)}</td>
+                <td className="px-6 py-4 text-emerald-700 text-center">{formatCurrency(totals.collected)}</td>
+                <td className="px-6 py-4 text-rose-700 text-center">{formatCurrency(totals.remaining)}</td>
                 <td colSpan={3} className="px-6 py-4"></td>
               </tr>
             </tfoot>
