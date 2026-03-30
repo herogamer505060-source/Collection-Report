@@ -244,22 +244,18 @@ function MainApp() {
     const unsubscribe = onAuthStateChanged(auth, (currentUser) => {
       setUser(currentUser);
       setIsAuthReady(true);
-      if (!currentUser) {
-        setIsLoading(false);
-        setData(SAMPLE_DATA);
-      }
     });
     return () => unsubscribe();
   }, []);
 
-  // Firestore Sync
+  // Firestore Sync — always read public data, no login required
   useEffect(() => {
-    if (!isAuthReady || !user) return;
+    if (!isAuthReady) return;
 
     setIsLoading(true);
     const q = query(
       collection(db, "installments"),
-      where("uid", "==", user.uid),
+      where("uid", "==", "public"),
     );
 
     const unsubscribe = onSnapshot(
@@ -270,7 +266,6 @@ function MainApp() {
           installments.push({ id: doc.id, ...doc.data() } as InstallmentData);
         });
 
-        // Sort by date or createdAt if needed
         setData(installments.length > 0 ? installments : SAMPLE_DATA);
         setIsLoading(false);
       },
@@ -280,7 +275,7 @@ function MainApp() {
     );
 
     return () => unsubscribe();
-  }, [isAuthReady, user]);
+  }, [isAuthReady]);
 
   const handleLogin = async () => {
     try {
@@ -331,6 +326,43 @@ function MainApp() {
             `installments/${item.id}`,
           );
         }
+      }
+    }
+  };
+
+  const handleUpdateCollected = async (
+    customer: string,
+    installmentCode: string,
+    newCollected: number,
+  ) => {
+    const item = data.find(
+      (i) => i.customer === customer && i.installmentCode === installmentCode,
+    );
+    if (!item) return;
+
+    const newRemaining = item.netValue - newCollected;
+
+    setData((prev) =>
+      prev.map((i) =>
+        i.customer === customer && i.installmentCode === installmentCode
+          ? { ...i, collected: newCollected, remaining: newRemaining }
+          : i,
+      ),
+    );
+
+    if (user && item.id) {
+      try {
+        await setDoc(
+          doc(db, "installments", item.id),
+          { collected: newCollected, remaining: newRemaining },
+          { merge: true },
+        );
+      } catch (error) {
+        handleFirestoreError(
+          error,
+          OperationType.UPDATE,
+          `installments/${item.id}`,
+        );
       }
     }
   };
@@ -566,7 +598,7 @@ function MainApp() {
             const existingSnap = await getDocs(
               query(
                 collection(db, "installments"),
-                where("uid", "==", user.uid),
+                where("uid", "==", "public"),
               ),
             );
             await Promise.all(existingSnap.docs.map((d) => deleteDoc(d.ref)));
@@ -583,7 +615,7 @@ function MainApp() {
                 return setDoc(docRef, {
                   ...item,
                   id: deterministicId,
-                  uid: user.uid,
+                  uid: "public",
                   updatedAt: new Date().toISOString(),
                 });
               }),
@@ -952,6 +984,7 @@ function MainApp() {
           <DashboardView
             isLoading={isLoading}
             user={user}
+            isAdmin={isAdmin}
             stats={stats}
             data={data}
             searchTerm={searchTerm}
@@ -965,6 +998,7 @@ function MainApp() {
             filteredData={filteredData}
             totals={totals}
             handleUpdateNote={handleUpdateNote}
+            handleUpdateCollected={handleUpdateCollected}
           />
         ) : (
           <ReportsView
@@ -1260,6 +1294,7 @@ function MainApp() {
 function DashboardView({
   isLoading,
   user,
+  isAdmin,
   stats,
   data,
   searchTerm,
@@ -1273,6 +1308,7 @@ function DashboardView({
   filteredData,
   totals,
   handleUpdateNote,
+  handleUpdateCollected,
 }: any) {
   return (
     <>
@@ -1443,7 +1479,22 @@ function DashboardView({
                       {formatCurrency(item.netValue)}
                     </td>
                     <td className="px-6 py-4 text-emerald-600 font-black text-center">
-                      {formatCurrency(item.collected)}
+                      {isAdmin ? (
+                        <input
+                          type="number"
+                          defaultValue={item.collected}
+                          onBlur={(e) =>
+                            handleUpdateCollected(
+                              item.customer,
+                              item.installmentCode,
+                              Number(e.target.value),
+                            )
+                          }
+                          className="w-full bg-transparent border-b border-emerald-300 focus:border-emerald-600 focus:outline-none text-center font-black text-emerald-600 text-sm"
+                        />
+                      ) : (
+                        formatCurrency(item.collected)
+                      )}
                     </td>
                     <td className="px-6 py-4 text-rose-600 font-black text-center">
                       {formatCurrency(item.remaining)}
@@ -1472,19 +1523,25 @@ function DashboardView({
                       )}
                     </td>
                     <td className="px-6 py-4 text-slate-500 text-sm">
-                      <input
-                        type="text"
-                        value={item.notes || ""}
-                        onChange={(e) =>
-                          handleUpdateNote(
-                            item.customer,
-                            item.installmentCode,
-                            e.target.value,
-                          )
-                        }
-                        className="w-full bg-transparent border-b border-transparent group-hover:border-slate-200 focus:border-indigo-500 focus:outline-none transition-all py-1 text-xs italic"
-                        placeholder="أضف ملاحظة..."
-                      />
+                      {isAdmin ? (
+                        <input
+                          type="text"
+                          value={item.notes || ""}
+                          onChange={(e) =>
+                            handleUpdateNote(
+                              item.customer,
+                              item.installmentCode,
+                              e.target.value,
+                            )
+                          }
+                          className="w-full bg-transparent border-b border-transparent group-hover:border-slate-200 focus:border-indigo-500 focus:outline-none transition-all py-1 text-xs italic"
+                          placeholder="أضف ملاحظة..."
+                        />
+                      ) : (
+                        <span className="text-xs italic">
+                          {item.notes || "-"}
+                        </span>
+                      )}
                     </td>
                   </motion.tr>
                 ))}
