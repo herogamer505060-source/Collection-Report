@@ -266,11 +266,12 @@ function MainApp() {
           installments.push({ id: doc.id, ...doc.data() } as InstallmentData);
         });
 
-        setData(installments.length > 0 ? installments : SAMPLE_DATA);
+        setData(installments);
         setIsLoading(false);
       },
       (error) => {
-        handleFirestoreError(error, OperationType.GET, "installments");
+        console.error("Firestore read error:", error);
+        setIsLoading(false);
       },
     );
 
@@ -288,7 +289,6 @@ function MainApp() {
   const handleLogout = async () => {
     try {
       await signOut(auth);
-      setData(SAMPLE_DATA);
     } catch (error) {
       console.error("Logout failed:", error);
     }
@@ -539,7 +539,11 @@ function MainApp() {
                     };
                   },
                 );
-                resolve(mappedData);
+                // Filter out total/summary rows (rows with no customer name)
+                const filteredData = mappedData.filter(
+                  (item) => item.customer && item.customer.trim() !== "",
+                );
+                resolve(filteredData);
               } catch (error) {
                 reject(error);
               }
