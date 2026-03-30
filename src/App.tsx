@@ -153,11 +153,14 @@ export default function App() {
 
   return (
     <div className="min-h-screen bg-slate-50 text-slate-900 font-sans p-4 md:p-8 dir-rtl print:p-0 print:m-0 print:bg-white" dir="rtl">
-      {/* Print Header */}
-      <div className="hidden print:flex flex-col items-center mb-6 border-b-2 border-slate-800 pb-4">
-        <h1 className="text-2xl font-bold text-slate-900">تقرير تحصيل الأقساط العقارية</h1>
-        <p className="text-slate-600 mt-1">تاريخ التقرير: {new Date().toLocaleDateString('ar-EG')}</p>
-      </div>
+      {/* Print-only Header */}
+      <header className="hidden print:block mb-12 text-center border-b-4 border-slate-800 pb-8">
+        <h1 className="text-4xl font-black text-slate-900 mb-4 tracking-tight">تقرير تحصيل الأقساط العقارية</h1>
+        <div className="flex justify-center gap-12 text-lg text-slate-600 font-bold">
+          <p>تاريخ التقرير: {new Date().toLocaleDateString('ar-EG')}</p>
+          <p>رقم التقرير: {Math.floor(Math.random() * 100000)}</p>
+        </div>
+      </header>
 
       {/* Header (Screen Only) */}
       <header className="flex flex-col md:flex-row justify-between items-start md:items-center mb-8 gap-4 print:hidden">
@@ -192,24 +195,24 @@ export default function App() {
       </header>
 
       {/* Print Summary Section */}
-      <div className="hidden print:block mb-8">
-        <h2 className="text-lg font-bold mb-4 border-b border-slate-300 pb-2">ملخص التحصيل</h2>
-        <div className="print-summary-grid">
-          <div className="border border-slate-200 p-3 rounded">
-            <p className="text-xs text-slate-500 mb-1">إجمالي القيمة الصافية</p>
-            <p className="font-bold text-slate-900">{formatCurrency(stats.totalNetValue)}</p>
+      <div className="hidden print:block mb-12">
+        <h2 className="text-2xl font-bold mb-6 border-r-4 border-indigo-600 pr-4">ملخص التحصيل العام</h2>
+        <div className="grid grid-cols-4 gap-6">
+          <div className="p-6 bg-slate-50 border-2 border-slate-200 rounded-xl">
+            <p className="text-sm text-slate-500 mb-2">إجمالي القيمة الصافية</p>
+            <p className="text-2xl font-black text-slate-900">{formatCurrency(stats.totalNetValue)}</p>
           </div>
-          <div className="border border-slate-200 p-3 rounded">
-            <p className="text-xs text-slate-500 mb-1">إجمالي المحصل الفعلي</p>
-            <p className="font-bold text-emerald-600">{formatCurrency(stats.totalCollected)}</p>
+          <div className="p-6 bg-emerald-50 border-2 border-emerald-200 rounded-xl">
+            <p className="text-sm text-emerald-600 mb-2">إجمالي المحصل الفعلي</p>
+            <p className="text-2xl font-black text-emerald-700">{formatCurrency(stats.totalCollected)}</p>
           </div>
-          <div className="border border-slate-200 p-3 rounded">
-            <p className="text-xs text-slate-500 mb-1">إجمالي المتبقي</p>
-            <p className="font-bold text-rose-600">{formatCurrency(stats.totalRemaining)}</p>
+          <div className="p-6 bg-rose-50 border-2 border-rose-200 rounded-xl">
+            <p className="text-sm text-rose-600 mb-2">إجمالي المتبقي</p>
+            <p className="text-2xl font-black text-rose-700">{formatCurrency(stats.totalRemaining)}</p>
           </div>
-          <div className="border border-slate-200 p-3 rounded">
-            <p className="text-xs text-slate-500 mb-1">نسبة التحصيل</p>
-            <p className="font-bold text-indigo-600">{stats.collectionRate.toFixed(1)}%</p>
+          <div className="p-6 bg-indigo-50 border-2 border-indigo-200 rounded-xl">
+            <p className="text-sm text-indigo-600 mb-2">نسبة التحصيل</p>
+            <p className="text-2xl font-black text-indigo-700">{stats.collectionRate.toFixed(1)}%</p>
           </div>
         </div>
       </div>
@@ -247,6 +250,9 @@ export default function App() {
       </div>
 
       {/* Charts Section */}
+      {/* Charts Section Title for Print */}
+      <h2 className="hidden print:block text-2xl font-bold mb-6 border-r-4 border-indigo-600 pr-4">التحليل البياني والتدفقات</h2>
+
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-8 mb-8 print:break-inside-avoid print:grid-cols-1">
         <div className="bg-white p-6 rounded-2xl shadow-sm border border-slate-100 print:shadow-none print:border-slate-300">
           <h3 className="text-lg font-semibold mb-6 flex items-center gap-2">
@@ -284,32 +290,29 @@ export default function App() {
                   formatter={(value: number) => formatCurrency(value)} 
                 />
                 <Legend verticalAlign="top" align="right" iconType="circle" height={36} />
-                <Bar dataKey="collected" name="المحصل الفعلي" stackId="a" fill="#10b981" barSize={28}>
+                <Bar dataKey="collected" name="المحصل الفعلي" stackId="a" fill="#10b981" barSize={24}>
                   <LabelList 
                     dataKey="collected" 
                     position="center" 
-                    formatter={(v: number) => v > 200000 ? formatCurrency(v) : ''} 
-                    style={{ fontSize: '9px', fontWeight: '800', fill: '#fff' }} 
+                    formatter={(v: number) => v > 300000 ? formatCurrency(v) : ''} 
+                    style={{ fontSize: '8px', fontWeight: '800', fill: '#fff', pointerEvents: 'none' }} 
                   />
                 </Bar>
-                <Bar dataKey="remaining" name="المتبقي" stackId="a" fill="#f43f5e" radius={[0, 6, 6, 0]} barSize={28}>
+                <Bar dataKey="remaining" name="المتبقي" stackId="a" fill="#f43f5e" radius={[0, 4, 4, 0]} barSize={24}>
                   <LabelList 
                     dataKey="remaining" 
                     position="center" 
-                    formatter={(v: number) => v > 200000 ? formatCurrency(v) : ''} 
-                    style={{ fontSize: '9px', fontWeight: '800', fill: '#fff' }} 
+                    formatter={(v: number) => v > 300000 ? formatCurrency(v) : ''} 
+                    style={{ fontSize: '8px', fontWeight: '800', fill: '#fff', pointerEvents: 'none' }} 
                   />
-                </Bar>
-                {/* Invisible scatter to hold the total label at the end of the bar */}
-                <Scatter dataKey="total" fill="transparent">
                   <LabelList 
                     dataKey="total" 
                     position="right" 
-                    offset={15}
-                    formatter={(v: number) => `إجمالي: ${formatCurrency(v)}`} 
-                    style={{ fontSize: '11px', fontWeight: '900', fill: '#4338ca' }} 
+                    offset={10}
+                    formatter={(v: number) => formatCurrency(v)} 
+                    style={{ fontSize: '10px', fontWeight: '900', fill: '#1e293b' }} 
                   />
-                </Scatter>
+                </Bar>
               </ComposedChart>
             </ResponsiveContainer>
           </div>
@@ -374,8 +377,11 @@ export default function App() {
         </div>
       </div>
 
+      {/* Table Section Title for Print */}
+      <h2 className="hidden print:block text-2xl font-bold mb-6 border-r-4 border-indigo-600 pr-4">تفاصيل البيانات والتحصيلات</h2>
+
       {/* Data Table */}
-      <div className="bg-white rounded-2xl shadow-sm border border-slate-100 overflow-hidden print:shadow-none print:border-slate-300">
+      <div className="bg-white rounded-2xl shadow-sm border border-slate-100 overflow-hidden print:shadow-none print:border-slate-300 print:mt-8 print:break-before-page">
         <div className="p-6 border-b border-slate-100 flex flex-col md:flex-row justify-between items-start md:items-center gap-4 print:hidden">
           <h3 className="text-lg font-semibold">تفاصيل العملاء والأقساط</h3>
           <div className="flex flex-wrap gap-3 w-full md:w-auto">
@@ -465,25 +471,28 @@ export default function App() {
       </div>
 
       {/* Footer / Summary for Print */}
-      <footer className="mt-12 pt-8 border-t-2 border-slate-800 text-center text-slate-600 text-sm hidden print:block">
-        <div className="grid grid-cols-3 gap-8 mb-12">
+      <footer className="mt-16 pt-12 border-t-4 border-slate-900 text-center text-slate-600 text-sm hidden print:block">
+        <div className="grid grid-cols-3 gap-12 mb-16">
           <div className="text-center">
-            <p className="font-bold text-slate-800 mb-12">إعداد المحاسب</p>
-            <div className="w-40 h-px bg-slate-400 mx-auto"></div>
+            <p className="font-black text-slate-900 text-lg mb-16">إعداد المحاسب</p>
+            <div className="w-48 h-0.5 bg-slate-900 mx-auto"></div>
+            <p className="mt-4 text-slate-400">التوقيع</p>
           </div>
           <div className="text-center">
-            <p className="font-bold text-slate-800 mb-12">المراجعة المالية</p>
-            <div className="w-40 h-px bg-slate-400 mx-auto"></div>
+            <p className="font-black text-slate-900 text-lg mb-16">المراجعة المالية</p>
+            <div className="w-48 h-0.5 bg-slate-900 mx-auto"></div>
+            <p className="mt-4 text-slate-400">التوقيع</p>
           </div>
           <div className="text-center">
-            <p className="font-bold text-slate-800 mb-12">اعتماد المدير العام</p>
-            <div className="w-40 h-px bg-slate-400 mx-auto"></div>
+            <p className="font-black text-slate-900 text-lg mb-16">اعتماد المدير العام</p>
+            <div className="w-48 h-0.5 bg-slate-900 mx-auto"></div>
+            <p className="mt-4 text-slate-400">التوقيع</p>
           </div>
         </div>
-        <div className="flex justify-between items-center text-xs text-slate-400 border-t border-slate-100 pt-4">
+        <div className="flex justify-between items-center text-xs text-slate-500 border-t border-slate-200 pt-6">
           <p>تاريخ الاستخراج: {new Date().toLocaleString('ar-EG')}</p>
+          <p>نظام تحصيل الأقساط العقارية الذكي - تقرير إداري معتمد</p>
           <p>صفحة 1 من 1</p>
-          <p>نظام تحصيل الأقساط العقارية الذكي</p>
         </div>
       </footer>
     </div>
@@ -501,7 +510,7 @@ function KpiCard({ title, value, icon, trend, color }: { title: string, value: s
   return (
     <motion.div 
       whileHover={{ y: -4 }}
-      className="bg-white p-6 rounded-2xl shadow-sm border border-slate-100 flex flex-col gap-4"
+      className="bg-white p-6 rounded-2xl shadow-sm border border-slate-100 flex flex-col gap-4 print:shadow-none print:border-slate-300"
     >
       <div className="flex justify-between items-start">
         <div className={cn("p-3 rounded-xl border", colorMap[color])}>

@@ -77,16 +77,23 @@
   }
 
   th, td {
-    border: 1px solid #475569 !important; /* Darker border */
-    padding: 6px 8px !important;
+    border: 1px solid #1e293b !important; /* Very dark border for maximum contrast */
+    padding: 8px 10px !important;
     word-wrap: break-word !important;
     text-align: right !important;
   }
 
   th {
+    background-color: #f1f5f9 !important;
+    color: #0f172a !important;
+    font-weight: 900 !important;
+    text-transform: uppercase !important;
+  }
+
+  tfoot td {
     background-color: #f8fafc !important;
-    color: #1e293b !important;
-    font-weight: 800 !important;
+    border-top: 2px solid #0f172a !important;
+    font-weight: 900 !important;
   }
 
   .print-summary-grid {
@@ -114,8 +121,9 @@
   /* Ensure charts are visible and clear in print */
   .recharts-responsive-container {
     width: 100% !important;
-    height: 280px !important; /* Slightly smaller for print to fit more */
+    height: 320px !important;
     display: block !important;
+    page-break-inside: avoid !important;
   }
   
   .recharts-surface {
@@ -123,9 +131,25 @@
   }
 
   .grid-cols-1.lg\:grid-cols-2 {
-    display: grid !important;
-    grid-template-columns: 1fr !important;
-    gap: 2rem !important;
+    display: block !important; /* Stack charts vertically in print */
+  }
+
+  .grid-cols-1.lg\:grid-cols-2 > div {
+    margin-bottom: 2rem !important;
+    page-break-inside: avoid !important;
+  }
+
+  /* Force table to start on a new page if it's too close to charts */
+  .print\:break-before-page {
+    page-break-before: always !important;
+  }
+
+  /* Signature section at the end of the report */
+  .print-footer-signatures {
+    display: flex !important;
+    justify-content: space-between !important;
+    margin-top: 3rem !important;
+    page-break-inside: avoid !important;
   }
 }
 
