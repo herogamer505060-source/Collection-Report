@@ -10,7 +10,7 @@ import {
 } from 'recharts';
 import { 
   Upload, TrendingUp, DollarSign, Users, AlertCircle, 
-  Download, Printer, Search, CheckCircle2, Loader2,
+  Download, Printer, Search, CheckCircle2, Loader2, Calendar, X,
   FileSpreadsheet, PieChart as PieChartIcon, LogIn, LogOut, User as UserIcon
 } from 'lucide-react';
 import * as XLSX from 'xlsx';
@@ -84,6 +84,22 @@ const SAMPLE_DATA: InstallmentData[] = [
 
 const ADMIN_EMAIL = "hero.gamer505060@gmail.com";
 
+const formatCurrency = (val: number) => {
+  return new Intl.NumberFormat('en-US', { style: 'currency', currency: 'EGP', maximumFractionDigits: 0 }).format(val);
+};
+
+const formatDate = (dateStr: string) => {
+  if (!dateStr || dateStr.trim() === "" || dateStr === "0") return "-";
+  try {
+    // If it's already in a standard YYYY-MM-DD format, try to format it for display
+    const date = new Date(dateStr);
+    if (isNaN(date.getTime())) return dateStr;
+    return new Intl.DateTimeFormat('en-US', { year: 'numeric', month: '2-digit', day: '2-digit' }).format(date);
+  } catch (e) {
+    return dateStr;
+  }
+};
+
 export default function App() {
   return (
     <ErrorBoundary>
@@ -101,6 +117,8 @@ function MainApp() {
   const [showAiError, setShowAiError] = useState(!isAIConfigured());
   const [searchTerm, setSearchTerm] = useState("");
   const [filterProject, setFilterProject] = useState("الكل");
+  const [startDate, setStartDate] = useState("");
+  const [endDate, setEndDate] = useState("");
   const [activeTab, setActiveTab] = useState<"dashboard" | "reports">("dashboard");
 
   const isAdmin = useMemo(() => user?.email === ADMIN_EMAIL, [user]);
@@ -201,22 +219,37 @@ function MainApp() {
             const jsonData = XLSX.utils.sheet_to_json(worksheet);
             
             const mappedData: InstallmentData[] = jsonData.map((row: any) => {
+              // Normalize keys to handle spaces and case sensitivity
+              const normalizedRow: any = {};
+              Object.keys(row).forEach(key => {
+                normalizedRow[key.trim().toLowerCase()] = row[key];
+              });
+
               const getVal = (keys: string[]) => {
-                const key = keys.find(k => row[k] !== undefined);
-                return key ? row[key] : undefined;
+                // Try original keys first
+                const originalKey = keys.find(k => row[k] !== undefined);
+                if (originalKey) return row[originalKey];
+                
+                // Try normalized keys
+                const normalizedKey = keys.find(k => normalizedRow[k.trim().toLowerCase()] !== undefined);
+                return normalizedKey ? normalizedRow[normalizedKey.trim().toLowerCase()] : undefined;
               };
 
-              const value = Number(getVal(['القيمة', 'Value', 'قيمة القسط']) || 0);
-              const collected = Number(getVal(['المحصل', 'Collected', 'المسدد']) || 0);
-              const remaining = Number(getVal(['المتبقي', 'Remaining', 'الرصيد']) || 0);
+              const value = Number(getVal(['القيمة', 'Value', 'قيمة القسط', 'قيمة']) || 0);
+              const collected = Number(getVal(['المحصل', 'Collected', 'المسدد', 'تم تحصيله']) || 0);
+              const remaining = Number(getVal(['المتبقي', 'Remaining', 'الرصيد', 'الباقي']) || 0);
               
-              let netValue = Number(getVal(['صافي القيمة', 'Net Value', 'الصافي']) || 0);
+              let netValue = Number(getVal(['صافي القيمة', 'Net Value', 'الصافي', 'صافي']) || 0);
               if (netValue === 0) {
                 netValue = value > 0 ? value : (collected + remaining);
               }
 
-              // Handle Date formatting
-              let rawDate = getVal(['التاريخ', 'Date', 'تاريخ الاستحقاق', 'تاريخ الاستحقاق للاقساط', 'تاريخ', 'Due Date']);
+              // Handle Date formatting - Added more variations
+              let rawDate = getVal([
+                'التاريخ', 'Date', 'تاريخ الاستحقاق', 'تاريخ الاستحقاق للاقساط', 
+                'تاريخ القسط', 'موعد السداد', 'تاريخ السداد', 'Due Date', 'Installment Date'
+              ]);
+              
               let formattedDate = "";
               if (rawDate instanceof Date) {
                 formattedDate = rawDate.toISOString().split('T')[0];
@@ -224,23 +257,31 @@ function MainApp() {
                 // Excel serial date
                 const date = new Date((rawDate - 25569) * 86400 * 1000);
                 formattedDate = date.toISOString().split('T')[0];
+              } else if (typeof rawDate === 'string' && rawDate.trim() !== "") {
+                // Try to parse string date
+                const d = new Date(rawDate);
+                if (!isNaN(d.getTime())) {
+                  formattedDate = d.toISOString().split('T')[0];
+                } else {
+                  formattedDate = rawDate;
+                }
               } else {
                 formattedDate = String(rawDate || '');
               }
 
               return {
-                customer: getVal(['العميل', 'Customer', 'اسم العميل', 'الاسم']) || '',
-                project: getVal(['المشروع', 'Project', 'اسم المشروع']) || '',
-                unitCode: getVal(['الوحدة', 'Unit', 'رقم الوحدة', 'كود الوحدة']) || '',
-                type: getVal(['النوع', 'Type', 'نوع القسط']) || 'قسط',
-                installmentCode: String(getVal(['كود القسط', 'Installment Code', 'رقم القسط']) || Math.random().toString(36).substr(2, 9)),
+                customer: getVal(['العميل', 'Customer', 'اسم العميل', 'الاسم', 'اسم']) || '',
+                project: getVal(['المشروع', 'Project', 'اسم المشروع', 'مشروع']) || '',
+                unitCode: getVal(['الوحدة', 'Unit', 'رقم الوحدة', 'كود الوحدة', 'وحدة']) || '',
+                type: getVal(['النوع', 'Type', 'نوع القسط', 'نوع']) || 'قسط',
+                installmentCode: String(getVal(['كود القسط', 'Installment Code', 'رقم القسط', 'كود']) || Math.random().toString(36).substr(2, 9)),
                 date: formattedDate,
                 value: value,
                 netValue: netValue,
                 collected: collected,
                 remaining: remaining,
-                commercialPaper: String(getVal(['الورقة التجارية', 'Commercial Paper', 'شيك', 'سند']) || ''),
-                notes: getVal(['ملاحظات', 'Notes', 'البيان']) || ''
+                commercialPaper: String(getVal(['الورقة التجارية', 'Commercial Paper', 'شيك', 'سند', 'رقم الشيك']) || ''),
+                notes: getVal(['ملاحظات', 'Notes', 'البيان', 'ملاحظة']) || ''
               };
             });
             resolve(mappedData);
@@ -358,9 +399,9 @@ function MainApp() {
       };
     });
 
-    const months = Array.from(new Set(data.map(item => item.date.substring(0, 7)))).sort();
+    const months = Array.from(new Set(data.map(item => item.date && item.date.length >= 7 ? item.date.substring(0, 7) : ""))).filter(m => m !== "").sort();
     const monthlyStats = months.map(m => {
-      const mData = data.filter(item => item.date.startsWith(m));
+      const mData = data.filter(item => item.date && item.date.startsWith(m));
       return {
         month: String(m),
         collected: mData.reduce((sum, item) => {
@@ -386,13 +427,28 @@ function MainApp() {
       const matchesSearch = item.customer.toLowerCase().includes(searchTerm.toLowerCase()) || 
                             item.unitCode.toLowerCase().includes(searchTerm.toLowerCase());
       const matchesProject = filterProject === "الكل" || item.project === filterProject;
-      return matchesSearch && matchesProject;
-    });
-  }, [data, searchTerm, filterProject]);
+      
+      let matchesDate = true;
+      if (item.date && item.date !== "-" && item.date !== "0") {
+        const itemDate = new Date(item.date);
+        if (!isNaN(itemDate.getTime())) {
+          if (startDate) {
+            const start = new Date(startDate);
+            if (itemDate < start) matchesDate = false;
+          }
+          if (endDate) {
+            const end = new Date(endDate);
+            end.setHours(23, 59, 59, 999);
+            if (itemDate > end) matchesDate = false;
+          }
+        }
+      } else if (startDate || endDate) {
+        matchesDate = false;
+      }
 
-  const formatCurrency = (val: number) => {
-    return new Intl.NumberFormat('ar-EG', { style: 'currency', currency: 'EGP', maximumFractionDigits: 0 }).format(val);
-  };
+      return matchesSearch && matchesProject && matchesDate;
+    });
+  }, [data, searchTerm, filterProject, startDate, endDate]);
 
   const totals = useMemo(() => {
     return filteredData.reduce((acc, item) => ({
@@ -587,8 +643,11 @@ function MainApp() {
             setSearchTerm={setSearchTerm}
             filterProject={filterProject}
             setFilterProject={setFilterProject}
+            startDate={startDate}
+            setStartDate={setStartDate}
+            endDate={endDate}
+            setEndDate={setEndDate}
             filteredData={filteredData}
-            formatCurrency={formatCurrency}
             totals={totals}
             handleUpdateNote={handleUpdateNote}
           />
@@ -596,7 +655,6 @@ function MainApp() {
           <ReportsView 
             stats={stats}
             filteredData={filteredData}
-            formatCurrency={formatCurrency}
             handlePrint={handlePrint}
             handleExportExcel={handleExportExcel}
             isAdmin={isAdmin}
@@ -638,27 +696,31 @@ function MainApp() {
                 توزيع التحصيل حسب المشروع
               </h3>
               <div className="h-[450px] w-full">
-                <ResponsiveContainer width="100%" height="100%" minWidth={0}>
-                  <PieChart>
-                    <Pie
-                      data={stats.projectStats}
-                      cx="50%"
-                      cy="50%"
-                      innerRadius={80}
-                      outerRadius={140}
-                      paddingAngle={5}
-                      dataKey="collected"
-                      nameKey="name"
-                      label={({ name, percent }) => `${name} (${(percent * 100).toFixed(0)}%)`}
-                    >
-                      {stats.projectStats.map((entry, index) => (
-                        <Cell key={`cell-${index}`} fill={['#6366f1', '#10b981', '#f43f5e', '#f59e0b', '#8b5cf6'][index % 5]} />
-                      ))}
-                    </Pie>
-                    <Tooltip formatter={(value: number) => formatCurrency(value)} />
-                    <Legend />
-                  </PieChart>
-                </ResponsiveContainer>
+                {stats.projectStats.length > 0 ? (
+                  <ResponsiveContainer width="100%" height="100%" minWidth={0} debounce={100}>
+                    <PieChart>
+                      <Pie
+                        data={stats.projectStats}
+                        cx="50%"
+                        cy="50%"
+                        innerRadius={80}
+                        outerRadius={140}
+                        paddingAngle={5}
+                        dataKey="collected"
+                        nameKey="name"
+                        label={({ name, percent }) => `${name} (${(percent * 100).toFixed(0)}%)`}
+                      >
+                        {stats.projectStats.map((entry, index) => (
+                          <Cell key={`cell-${index}`} fill={['#6366f1', '#10b981', '#f43f5e', '#f59e0b', '#8b5cf6'][index % 5]} />
+                        ))}
+                      </Pie>
+                      <Tooltip formatter={(value: number) => formatCurrency(value)} />
+                      <Legend />
+                    </PieChart>
+                  </ResponsiveContainer>
+                ) : (
+                  <div className="h-full flex items-center justify-center text-slate-400">لا توجد بيانات للمشاريع</div>
+                )}
               </div>
             </div>
             <div className="bg-white p-6 rounded-2xl border border-slate-200 print:break-inside-avoid">
@@ -667,15 +729,19 @@ function MainApp() {
                 التدفق المالي الشهري
               </h3>
               <div className="h-[400px] w-full">
-                <ResponsiveContainer width="100%" height="100%" minWidth={0}>
-                  <AreaChart data={stats.monthlyStats} margin={{ top: 50, right: 30, left: 0, bottom: 0 }}>
-                    <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f1f5f9" />
-                    <XAxis dataKey="month" tick={{ fontSize: 12, fontWeight: 600 }} />
-                    <YAxis tickFormatter={(v) => v >= 1000000 ? `${(v/1000000).toFixed(1)}M` : v >= 1000 ? `${(v/1000).toFixed(0)}K` : v} />
-                    <Area type="monotone" dataKey="collected" name="المحصل" stroke="#10b981" fill="#10b981" fillOpacity={0.1} />
-                    <Area type="monotone" dataKey="remaining" name="المتبقي" stroke="#f43f5e" fill="#f43f5e" fillOpacity={0.1} />
-                  </AreaChart>
-                </ResponsiveContainer>
+                {stats.monthlyStats.length > 0 ? (
+                  <ResponsiveContainer width="100%" height="100%" minWidth={0} debounce={100}>
+                    <AreaChart data={stats.monthlyStats} margin={{ top: 50, right: 30, left: 0, bottom: 0 }}>
+                      <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f1f5f9" />
+                      <XAxis dataKey="month" tick={{ fontSize: 12, fontWeight: 600 }} />
+                      <YAxis tickFormatter={(v) => v >= 1000000 ? `${(v/1000000).toFixed(1)}M` : v >= 1000 ? `${(v/1000).toFixed(0)}K` : v} />
+                      <Area type="monotone" dataKey="collected" name="المحصل" stroke="#10b981" fill="#10b981" fillOpacity={0.1} />
+                      <Area type="monotone" dataKey="remaining" name="المتبقي" stroke="#f43f5e" fill="#f43f5e" fillOpacity={0.1} />
+                    </AreaChart>
+                  </ResponsiveContainer>
+                ) : (
+                  <div className="h-full flex items-center justify-center text-slate-400">لا توجد بيانات شهرية</div>
+                )}
               </div>
             </div>
           </div>
@@ -705,7 +771,7 @@ function MainApp() {
                   <td className="px-3 py-2 border font-bold">{item.customer}</td>
                   <td className="px-3 py-2 border">{item.project}</td>
                   <td className="px-3 py-2 border font-mono max-w-[120px] whitespace-normal break-words">{item.unitCode}</td>
-                  <td className="px-3 py-2 border">{item.date}</td>
+                  <td className="px-3 py-2 border">{formatDate(item.date)}</td>
                   <td className="px-3 py-2 border font-black">{formatCurrency(item.netValue)}</td>
                   <td className="px-3 py-2 border text-center font-black text-emerald-700">{formatCurrency(item.collected)}</td>
                   <td className="px-3 py-2 border text-center font-black text-rose-700">{formatCurrency(item.remaining)}</td>
@@ -757,7 +823,8 @@ function MainApp() {
 
 function DashboardView({ 
   isLoading, user, stats, data, searchTerm, setSearchTerm, 
-  filterProject, setFilterProject, filteredData, formatCurrency, totals, handleUpdateNote 
+  filterProject, setFilterProject, startDate, setStartDate,
+  endDate, setEndDate, filteredData, totals, handleUpdateNote 
 }: any) {
   return (
     <>
@@ -805,6 +872,38 @@ function DashboardView({
         <div className="p-6 border-b border-slate-100 flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
           <h3 className="text-lg font-semibold">تفاصيل العملاء والأقساط</h3>
           <div className="flex flex-wrap gap-3 w-full md:w-auto">
+            <div className="flex flex-wrap gap-2 items-center">
+              <div className="relative">
+                <Calendar className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400" size={16} />
+                <input 
+                  type="date"
+                  value={startDate}
+                  onChange={(e) => setStartDate(e.target.value)}
+                  className="pr-10 pl-4 py-2 bg-slate-50 border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500/20 text-xs"
+                  placeholder="من تاريخ"
+                />
+              </div>
+              <span className="text-slate-400 text-xs">إلى</span>
+              <div className="relative">
+                <Calendar className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400" size={16} />
+                <input 
+                  type="date"
+                  value={endDate}
+                  onChange={(e) => setEndDate(e.target.value)}
+                  className="pr-10 pl-4 py-2 bg-slate-50 border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500/20 text-xs"
+                  placeholder="إلى تاريخ"
+                />
+              </div>
+              {(startDate || endDate) && (
+                <button 
+                  onClick={() => { setStartDate(""); setEndDate(""); }}
+                  className="p-2 text-rose-500 hover:bg-rose-50 rounded-lg transition-colors"
+                  title="مسح الفلتر"
+                >
+                  <X size={16} />
+                </button>
+              )}
+            </div>
             <div className="relative flex-1 md:w-64">
               <Search className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400" size={18} />
               <input 
@@ -857,7 +956,7 @@ function DashboardView({
                     <td className="px-6 py-4 font-bold text-slate-900 whitespace-normal break-words leading-relaxed min-w-[150px]">{item.customer}</td>
                     <td className="px-6 py-4 text-slate-600 text-sm">{item.project}</td>
                     <td className="px-6 py-4 text-slate-600 text-sm font-mono max-w-[100px] whitespace-normal break-words leading-relaxed">{item.unitCode}</td>
-                    <td className="px-6 py-4 text-slate-500 text-sm">{item.date}</td>
+                    <td className="px-6 py-4 text-slate-500 text-sm">{formatDate(item.date)}</td>
                     <td className="px-6 py-4 text-slate-900 font-black">{formatCurrency(item.netValue)}</td>
                     <td className="px-6 py-4 text-emerald-600 font-black text-center">{formatCurrency(item.collected)}</td>
                     <td className="px-6 py-4 text-rose-600 font-black text-center">{formatCurrency(item.remaining)}</td>
@@ -902,7 +1001,7 @@ function DashboardView({
   );
 }
 
-function ReportsView({ stats, filteredData, formatCurrency, handlePrint, handleExportExcel, isAdmin }: any) {
+function ReportsView({ stats, filteredData, handlePrint, handleExportExcel, isAdmin }: any) {
   return (
     <div className="space-y-8">
       {/* Reports Header */}
@@ -955,27 +1054,31 @@ function ReportsView({ stats, filteredData, formatCurrency, handlePrint, handleE
             توزيع التحصيل حسب المشروع
           </h3>
           <div className="h-[350px]">
-            <ResponsiveContainer width="100%" height="100%" minWidth={0}>
-              <PieChart>
-                <Pie
-                  data={stats.projectStats}
-                  cx="50%"
-                  cy="50%"
-                  innerRadius={60}
-                  outerRadius={100}
-                  paddingAngle={5}
-                  dataKey="collected"
-                  nameKey="name"
-                  label={({ name, percent }) => `${name} (${(percent * 100).toFixed(0)}%)`}
-                >
-                  {stats.projectStats.map((entry: any, index: number) => (
-                    <Cell key={`cell-${index}`} fill={['#6366f1', '#10b981', '#f43f5e', '#f59e0b', '#8b5cf6'][index % 5]} />
-                  ))}
-                </Pie>
-                <Tooltip formatter={(value: number) => formatCurrency(value)} />
-                <Legend />
-              </PieChart>
-            </ResponsiveContainer>
+            {stats.projectStats.length > 0 ? (
+              <ResponsiveContainer width="100%" height="100%" minWidth={0} debounce={100}>
+                <PieChart>
+                  <Pie
+                    data={stats.projectStats}
+                    cx="50%"
+                    cy="50%"
+                    innerRadius={60}
+                    outerRadius={100}
+                    paddingAngle={5}
+                    dataKey="collected"
+                    nameKey="name"
+                    label={({ name, percent }) => `${name} (${(percent * 100).toFixed(0)}%)`}
+                  >
+                    {stats.projectStats.map((entry: any, index: number) => (
+                      <Cell key={`cell-${index}`} fill={['#6366f1', '#10b981', '#f43f5e', '#f59e0b', '#8b5cf6'][index % 5]} />
+                    ))}
+                  </Pie>
+                  <Tooltip formatter={(value: number) => formatCurrency(value)} />
+                  <Legend />
+                </PieChart>
+              </ResponsiveContainer>
+            ) : (
+              <div className="h-full flex items-center justify-center text-slate-400">لا توجد بيانات للمشاريع</div>
+            )}
           </div>
         </div>
 
@@ -985,15 +1088,19 @@ function ReportsView({ stats, filteredData, formatCurrency, handlePrint, handleE
             التدفق المالي الشهري
           </h3>
           <div className="h-[350px]">
-            <ResponsiveContainer width="100%" height="100%" minWidth={0}>
-              <AreaChart data={stats.monthlyStats} margin={{ top: 10, right: 10, left: 0, bottom: 0 }}>
-                <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f1f5f9" />
-                <XAxis dataKey="month" tick={{ fontSize: 10 }} />
-                <YAxis tickFormatter={(v) => v >= 1000000 ? `${(v/1000000).toFixed(1)}M` : v >= 1000 ? `${(v/1000).toFixed(0)}K` : v} tick={{ fontSize: 10 }} />
-                <Tooltip formatter={(value: number) => formatCurrency(value)} />
-                <Area type="monotone" dataKey="collected" name="المحصل" stroke="#10b981" fill="#10b981" fillOpacity={0.1} />
-              </AreaChart>
-            </ResponsiveContainer>
+            {stats.monthlyStats.length > 0 ? (
+              <ResponsiveContainer width="100%" height="100%" minWidth={0} debounce={100}>
+                <AreaChart data={stats.monthlyStats} margin={{ top: 10, right: 10, left: 0, bottom: 0 }}>
+                  <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f1f5f9" />
+                  <XAxis dataKey="month" tick={{ fontSize: 10 }} />
+                  <YAxis tickFormatter={(v) => v >= 1000000 ? `${(v/1000000).toFixed(1)}M` : v >= 1000 ? `${(v/1000).toFixed(0)}K` : v} tick={{ fontSize: 10 }} />
+                  <Tooltip formatter={(value: number) => formatCurrency(value)} />
+                  <Area type="monotone" dataKey="collected" name="المحصل" stroke="#10b981" fill="#10b981" fillOpacity={0.1} />
+                </AreaChart>
+              </ResponsiveContainer>
+            ) : (
+              <div className="h-full flex items-center justify-center text-slate-400">لا توجد بيانات شهرية</div>
+            )}
           </div>
         </div>
       </div>
