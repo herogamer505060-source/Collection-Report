@@ -65,6 +65,7 @@ import {
   collection,
   doc,
   setDoc,
+  getDocs,
   deleteDoc,
   onSnapshot,
   query,
@@ -560,30 +561,33 @@ function MainApp() {
 
       if (newData.length > 0) {
         if (user) {
-          // Save to Firestore with deterministic IDs to prevent duplication
           try {
-            const batchPromises = newData.map((item) => {
-              // Create a unique deterministic ID based on customer, project, unit and installment code
-              // This ensures that re-uploading the same data updates existing records instead of duplicating them
-              const deterministicId =
-                `${item.customer}_${item.project}_${item.unitCode}_${item.installmentCode}`.replace(
-                  /\s+/g,
-                  "_",
-                );
-              const docRef = doc(db, "installments", deterministicId);
+            // Delete all existing records for this user first to avoid duplicates
+            const existingSnap = await getDocs(
+              query(
+                collection(db, "installments"),
+                where("uid", "==", user.uid),
+              ),
+            );
+            await Promise.all(existingSnap.docs.map((d) => deleteDoc(d.ref)));
 
-              return setDoc(
-                docRef,
-                {
+            // Write fresh records with deterministic IDs
+            await Promise.all(
+              newData.map((item) => {
+                const deterministicId =
+                  `${item.customer}_${item.project}_${item.unitCode}_${item.installmentCode}`.replace(
+                    /\s+/g,
+                    "_",
+                  );
+                const docRef = doc(db, "installments", deterministicId);
+                return setDoc(docRef, {
                   ...item,
                   id: deterministicId,
                   uid: user.uid,
                   updatedAt: new Date().toISOString(),
-                },
-                { merge: true },
-              );
-            });
-            await Promise.all(batchPromises);
+                });
+              }),
+            );
           } catch (error) {
             handleFirestoreError(error, OperationType.WRITE, "installments");
           }
