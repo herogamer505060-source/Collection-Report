@@ -1313,6 +1313,127 @@ function DashboardView({
         </div>
       )}
 
+      {/* Charts Section */}
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-8">
+        <div className="bg-white p-6 rounded-2xl shadow-sm border border-slate-100">
+          <h3 className="text-lg font-semibold mb-4 flex items-center gap-2">
+            <PieChartIcon size={20} className="text-indigo-600" />
+            توزيع التحصيل حسب المشروع
+          </h3>
+          <div className="h-[300px]">
+            {stats.projectStats.length > 0 ? (
+              <ResponsiveContainer
+                width="100%"
+                height="100%"
+                minWidth={0}
+                debounce={100}
+              >
+                <PieChart>
+                  <Pie
+                    data={stats.projectStats}
+                    cx="50%"
+                    cy="50%"
+                    innerRadius={60}
+                    outerRadius={100}
+                    paddingAngle={5}
+                    dataKey="collected"
+                    nameKey="name"
+                    label={({ name, percent }) =>
+                      `${name} (${(percent * 100).toFixed(0)}%)`
+                    }
+                  >
+                    {stats.projectStats.map((entry: any, index: number) => (
+                      <Cell
+                        key={`cell-${index}`}
+                        fill={
+                          [
+                            "#6366f1",
+                            "#10b981",
+                            "#f43f5e",
+                            "#f59e0b",
+                            "#8b5cf6",
+                          ][index % 5]
+                        }
+                      />
+                    ))}
+                  </Pie>
+                  <Tooltip
+                    formatter={(value: number) => formatCurrency(value)}
+                  />
+                  <Legend />
+                </PieChart>
+              </ResponsiveContainer>
+            ) : (
+              <div className="h-full flex items-center justify-center text-slate-400">
+                لا توجد بيانات للمشاريع
+              </div>
+            )}
+          </div>
+        </div>
+
+        <div className="bg-white p-6 rounded-2xl shadow-sm border border-slate-100">
+          <h3 className="text-lg font-semibold mb-4 flex items-center gap-2">
+            <TrendingUp size={20} className="text-indigo-600" />
+            التدفق المالي الشهري
+          </h3>
+          <div className="h-[300px]">
+            {stats.monthlyStats.length > 0 ? (
+              <ResponsiveContainer
+                width="100%"
+                height="100%"
+                minWidth={0}
+                debounce={100}
+              >
+                <AreaChart
+                  data={stats.monthlyStats}
+                  margin={{ top: 10, right: 10, left: 0, bottom: 0 }}
+                >
+                  <CartesianGrid
+                    strokeDasharray="3 3"
+                    vertical={false}
+                    stroke="#f1f5f9"
+                  />
+                  <XAxis dataKey="month" tick={{ fontSize: 10 }} />
+                  <YAxis
+                    tickFormatter={(v) =>
+                      v >= 1000000
+                        ? `${(v / 1000000).toFixed(1)}M`
+                        : v >= 1000
+                          ? `${(v / 1000).toFixed(0)}K`
+                          : v
+                    }
+                    tick={{ fontSize: 10 }}
+                  />
+                  <Tooltip
+                    formatter={(value: number) => formatCurrency(value)}
+                  />
+                  <Area
+                    type="monotone"
+                    dataKey="collected"
+                    name="المحصل"
+                    stroke="#10b981"
+                    fill="#10b981"
+                    fillOpacity={0.1}
+                  />
+                  <Area
+                    type="monotone"
+                    dataKey="remaining"
+                    name="المتبقي"
+                    stroke="#f43f5e"
+                    fill="#f43f5e"
+                    fillOpacity={0.1}
+                  />
+                </AreaChart>
+              </ResponsiveContainer>
+            ) : (
+              <div className="h-full flex items-center justify-center text-slate-400">
+                لا توجد بيانات شهرية
+              </div>
+            )}
+          </div>
+        </div>
+      </div>
+
       {/* Data Table */}
       <div className="bg-white rounded-2xl shadow-sm border border-slate-100 overflow-hidden">
         <div className="p-6 border-b border-slate-100 flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
