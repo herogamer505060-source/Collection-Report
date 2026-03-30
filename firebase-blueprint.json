@@ -1,0 +1,67 @@
+{
+  "entities": {
+    "Installment": {
+      "title": "Installment",
+      "description": "Represents an installment record.",
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "description": "Unique identifier for the installment."
+        },
+        "unit": {
+          "type": "string",
+          "description": "Unit name or number."
+        },
+        "project": {
+          "type": "string",
+          "description": "Project name."
+        },
+        "client": {
+          "type": "string",
+          "description": "Client name."
+        },
+        "dueDate": {
+          "type": "string",
+          "description": "Due date of the installment."
+        },
+        "value": {
+          "type": "number",
+          "description": "Value of the installment."
+        },
+        "collected": {
+          "type": "number",
+          "description": "Amount collected."
+        },
+        "remaining": {
+          "type": "number",
+          "description": "Amount remaining."
+        },
+        "netValue": {
+          "type": "number",
+          "description": "Net value of the installment."
+        },
+        "notes": {
+          "type": "string",
+          "description": "Notes for the installment."
+        },
+        "uid": {
+          "type": "string",
+          "description": "User ID of the owner."
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Timestamp when the record was created."
+        }
+      },
+      "required": ["id", "unit", "project", "client", "dueDate", "value", "collected", "remaining", "uid"]
+    }
+  },
+  "firestore": {
+    "/installments/{installmentId}": {
+      "schema": "Installment",
+      "description": "Collection of installments."
+    }
+  }
+}

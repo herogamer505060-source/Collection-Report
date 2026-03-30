@@ -3,7 +3,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import React, { useState, useMemo, useCallback, useEffect } from 'react';
+import React, { useState, useMemo, useCallback, useEffect, Component, ErrorInfo, ReactNode } from 'react';
 import { 
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, 
   AreaChart, Area, LabelList, ComposedChart, Scatter, PieChart, Pie, Cell
@@ -11,7 +11,7 @@ import {
 import { 
   Upload, TrendingUp, DollarSign, Users, AlertCircle, 
   Download, Printer, Search, CheckCircle2, Loader2,
-  FileSpreadsheet, PieChart as PieChartIcon
+  FileSpreadsheet, PieChart as PieChartIcon, LogIn, LogOut, User as UserIcon
 } from 'lucide-react';
 import * as XLSX from 'xlsx';
 import { useDropzone } from 'react-dropzone';
@@ -19,6 +19,60 @@ import { motion, AnimatePresence } from 'motion/react';
 import { cn } from './lib/utils';
 import { InstallmentData, DashboardStats } from './types';
 import { analyzeCollectionPDF, isAIConfigured } from './services/geminiService';
+import { 
+  auth, db, googleProvider, signInWithPopup, signOut, onAuthStateChanged,
+  collection, doc, setDoc, deleteDoc, onSnapshot, query, where, 
+  handleFirestoreError, OperationType
+} from './firebase';
+import { User } from 'firebase/auth';
+
+// Error Boundary Component
+class ErrorBoundary extends (React.Component as any) {
+  constructor(props: any) {
+    super(props);
+    this.state = { hasError: false, errorInfo: null };
+  }
+
+  static getDerivedStateFromError(error: any) {
+    return { hasError: true, errorInfo: error.message || String(error) };
+  }
+
+  componentDidCatch(error: any, errorInfo: any) {
+    console.error("ErrorBoundary caught an error", error, errorInfo);
+  }
+
+  render() {
+    if ((this.state as any).hasError) {
+      let displayError = "حدث خطأ غير متوقع.";
+      try {
+        const parsed = JSON.parse((this.state as any).errorInfo || "{}");
+        if (parsed.error) {
+          displayError = `خطأ في قاعدة البيانات: ${parsed.error}`;
+        }
+      } catch (e) {
+        displayError = (this.state as any).errorInfo || displayError;
+      }
+
+      return (
+        <div className="min-h-screen flex items-center justify-center bg-slate-50 p-4 dir-rtl" dir="rtl">
+          <div className="bg-white p-8 rounded-2xl shadow-xl border border-rose-100 max-w-md w-full text-center">
+            <AlertCircle className="mx-auto text-rose-500 mb-4" size={48} />
+            <h2 className="text-2xl font-bold text-slate-800 mb-4">عذراً، حدث خطأ ما</h2>
+            <p className="text-slate-600 mb-6">{displayError}</p>
+            <button 
+              onClick={() => window.location.reload()}
+              className="w-full py-3 bg-indigo-600 text-white rounded-xl font-bold hover:bg-indigo-700 transition-all"
+            >
+              إعادة تحميل الصفحة
+            </button>
+          </div>
+        </div>
+      );
+    }
+
+    return (this.props as any).children;
+  }
+}
 
 // Sample data for initial view - Matching PDF exactly
 const SAMPLE_DATA: InstallmentData[] = [
@@ -29,112 +83,222 @@ const SAMPLE_DATA: InstallmentData[] = [
 ];
 
 export default function App() {
-  const [data, setData] = useState<InstallmentData[]>(() => {
-    const saved = localStorage.getItem('installment_data');
-    return saved ? JSON.parse(saved) : SAMPLE_DATA;
-  });
+  return (
+    <ErrorBoundary>
+      <MainApp />
+    </ErrorBoundary>
+  );
+}
+
+function MainApp() {
+  const [user, setUser] = useState<User | null>(null);
+  const [isAuthReady, setIsAuthReady] = useState(false);
+  const [data, setData] = useState<InstallmentData[]>([]);
+  const [isLoading, setIsLoading] = useState(true);
   const [isAnalyzing, setIsAnalyzing] = useState(false);
   const [showAiError, setShowAiError] = useState(!isAIConfigured());
   const [searchTerm, setSearchTerm] = useState("");
   const [filterProject, setFilterProject] = useState("الكل");
+  const [activeTab, setActiveTab] = useState<"dashboard" | "reports">("dashboard");
 
-  // Save data to localStorage whenever it changes
+  // Auth Listener
   useEffect(() => {
-    localStorage.setItem('installment_data', JSON.stringify(data));
-  }, [data]);
+    const unsubscribe = onAuthStateChanged(auth, (currentUser) => {
+      setUser(currentUser);
+      setIsAuthReady(true);
+      if (!currentUser) {
+        setIsLoading(false);
+        setData(SAMPLE_DATA);
+      }
+    });
+    return () => unsubscribe();
+  }, []);
 
-  const handleUpdateNote = (customer: string, installmentCode: string, newNote: string) => {
+  // Firestore Sync
+  useEffect(() => {
+    if (!isAuthReady || !user) return;
+
+    setIsLoading(true);
+    const q = query(collection(db, "installments"), where("uid", "==", user.uid));
+    
+    const unsubscribe = onSnapshot(q, (snapshot) => {
+      const installments: InstallmentData[] = [];
+      snapshot.forEach((doc) => {
+        installments.push({ id: doc.id, ...doc.data() } as InstallmentData);
+      });
+      
+      // Sort by date or createdAt if needed
+      setData(installments.length > 0 ? installments : SAMPLE_DATA);
+      setIsLoading(false);
+    }, (error) => {
+      handleFirestoreError(error, OperationType.GET, "installments");
+    });
+
+    return () => unsubscribe();
+  }, [isAuthReady, user]);
+
+  const handleLogin = async () => {
+    try {
+      await signInWithPopup(auth, googleProvider);
+    } catch (error) {
+      console.error("Login failed:", error);
+    }
+  };
+
+  const handleLogout = async () => {
+    try {
+      await signOut(auth);
+      setData(SAMPLE_DATA);
+    } catch (error) {
+      console.error("Logout failed:", error);
+    }
+  };
+
+  const handleUpdateNote = async (customer: string, installmentCode: string, newNote: string) => {
+    // Optimistic update
     setData(prev => prev.map(item => 
       (item.customer === customer && item.installmentCode === installmentCode) 
       ? { ...item, notes: newNote } 
       : item
     ));
+
+    if (user) {
+      const item = data.find(i => i.customer === customer && i.installmentCode === installmentCode);
+      if (item && item.id) {
+        try {
+          await setDoc(doc(db, "installments", item.id), { ...item, notes: newNote }, { merge: true });
+        } catch (error) {
+          handleFirestoreError(error, OperationType.UPDATE, `installments/${item.id}`);
+        }
+      }
+    }
   };
 
   const onDrop = useCallback(async (acceptedFiles: File[]) => {
     const file = acceptedFiles[0];
     if (!file) return;
 
+    let newData: InstallmentData[] = [];
+
     // Handle Excel files
     if (file.name.endsWith('.xlsx') || file.name.endsWith('.xls')) {
       const reader = new FileReader();
-      reader.onload = (e) => {
-        try {
-          const data = new Uint8Array(e.target?.result as ArrayBuffer);
-          const workbook = XLSX.read(data, { type: 'array' });
-          const firstSheetName = workbook.SheetNames[0];
-          const worksheet = workbook.Sheets[firstSheetName];
-          const jsonData = XLSX.utils.sheet_to_json(worksheet);
-          
-          // Map Excel columns to our data structure (with more flexible mapping)
-          const mappedData: InstallmentData[] = jsonData.map((row: any) => {
-            const getVal = (keys: string[]) => {
-              const key = keys.find(k => row[k] !== undefined);
-              return key ? row[key] : undefined;
-            };
+      const excelDataPromise = new Promise<InstallmentData[]>((resolve, reject) => {
+        reader.onload = (e) => {
+          try {
+            const dataArr = new Uint8Array(e.target?.result as ArrayBuffer);
+            const workbook = XLSX.read(dataArr, { type: 'array' });
+            const firstSheetName = workbook.SheetNames[0];
+            const worksheet = workbook.Sheets[firstSheetName];
+            const jsonData = XLSX.utils.sheet_to_json(worksheet);
+            
+            const mappedData: InstallmentData[] = jsonData.map((row: any) => {
+              const getVal = (keys: string[]) => {
+                const key = keys.find(k => row[k] !== undefined);
+                return key ? row[key] : undefined;
+              };
 
-            return {
-              customer: getVal(['العميل', 'Customer', 'اسم العميل', 'الاسم']) || '',
-              project: getVal(['المشروع', 'Project', 'اسم المشروع']) || '',
-              unitCode: getVal(['الوحدة', 'Unit', 'رقم الوحدة', 'كود الوحدة']) || '',
-              type: getVal(['النوع', 'Type', 'نوع القسط']) || 'قسط',
-              installmentCode: getVal(['كود القسط', 'Installment Code', 'رقم القسط']) || '',
-              date: getVal(['التاريخ', 'Date', 'تاريخ الاستحقاق']) || '',
-              value: Number(getVal(['القيمة', 'Value', 'قيمة القسط']) || 0),
-              netValue: Number(getVal(['صافي القيمة', 'Net Value', 'الصافي']) || 0),
-              collected: Number(getVal(['المحصل', 'Collected', 'المسدد']) || 0),
-              remaining: Number(getVal(['المتبقي', 'Remaining', 'الرصيد']) || 0),
-              commercialPaper: getVal(['الورقة التجارية', 'Commercial Paper', 'شيك', 'سند']) || '',
-              notes: getVal(['ملاحظات', 'Notes', 'البيان']) || ''
-            };
-          });
+              const value = Number(getVal(['القيمة', 'Value', 'قيمة القسط']) || 0);
+              const collected = Number(getVal(['المحصل', 'Collected', 'المسدد']) || 0);
+              const remaining = Number(getVal(['المتبقي', 'Remaining', 'الرصيد']) || 0);
+              
+              let netValue = Number(getVal(['صافي القيمة', 'Net Value', 'الصافي']) || 0);
+              if (netValue === 0) {
+                netValue = value > 0 ? value : (collected + remaining);
+              }
 
-          if (mappedData.length > 0) {
-            setData(mappedData);
+              return {
+                customer: getVal(['العميل', 'Customer', 'اسم العميل', 'الاسم']) || '',
+                project: getVal(['المشروع', 'Project', 'اسم المشروع']) || '',
+                unitCode: getVal(['الوحدة', 'Unit', 'رقم الوحدة', 'كود الوحدة']) || '',
+                type: getVal(['النوع', 'Type', 'نوع القسط']) || 'قسط',
+                installmentCode: String(getVal(['كود القسط', 'Installment Code', 'رقم القسط']) || Math.random().toString(36).substr(2, 9)),
+                date: getVal(['التاريخ', 'Date', 'تاريخ الاستحقاق']) || '',
+                value: value,
+                netValue: netValue,
+                collected: collected,
+                remaining: remaining,
+                commercialPaper: String(getVal(['الورقة التجارية', 'Commercial Paper', 'شيك', 'سند']) || ''),
+                notes: getVal(['ملاحظات', 'Notes', 'البيان']) || ''
+              };
+            });
+            resolve(mappedData);
+          } catch (error) {
+            reject(error);
           }
-        } catch (error) {
-          console.error("Error parsing Excel:", error);
-          alert("حدث خطأ أثناء تحليل ملف الإكسيل. يرجى التأكد من تنسيق الملف.");
-        }
-      };
-      reader.readAsArrayBuffer(file);
-      return;
-    }
-
-    setIsAnalyzing(true);
-    try {
-      if (!isAIConfigured()) {
-        throw new Error("MISSING_API_KEY");
-      }
-      const reader = new FileReader();
-      const fileData = await new Promise<string>((resolve, reject) => {
-        reader.onload = () => resolve(reader.result as string);
-        reader.onerror = reject;
-        reader.readAsDataURL(file);
+        };
+        reader.readAsArrayBuffer(file);
       });
 
-      const base64 = fileData.split(',')[1];
-      const result = await analyzeCollectionPDF(base64);
-      
-      if (result && result.length > 0) {
-        setData(result);
-      } else {
-        alert("لم يتم العثور على بيانات في الملف أو حدث خطأ أثناء التحليل.");
+      try {
+        newData = await excelDataPromise;
+      } catch (error) {
+        console.error("Error parsing Excel:", error);
+        alert("حدث خطأ أثناء تحليل ملف الإكسيل.");
+        return;
       }
-    } catch (error: any) {
-      console.error("Error analyzing PDF:", error);
-      if (error.message === "MISSING_API_KEY") {
-        alert("تنبيه: مفتاح GEMINI_API_KEY غير متوفر. يرجى إضافته من قائمة الإعدادات (Settings) لتفعيل ميزة تحليل الملفات بالذكاء الاصطناعي.");
-        setShowAiError(true);
-      } else if (error.status === 503 || (error.message && error.message.includes("503"))) {
-        alert("خادم الذكاء الاصطناعي مشغول حالياً (ضغط كبير). يرجى المحاولة مرة أخرى بعد قليل.");
-      } else {
-        alert("حدث خطأ أثناء رفع أو تحليل الملف. يرجى المحاولة مرة أخرى.");
+    } else {
+      setIsAnalyzing(true);
+      try {
+        if (!isAIConfigured()) {
+          throw new Error("MISSING_API_KEY");
+        }
+        const reader = new FileReader();
+        const fileData = await new Promise<string>((resolve, reject) => {
+          reader.onload = () => resolve(reader.result as string);
+          reader.onerror = reject;
+          reader.readAsDataURL(file);
+        });
+
+        const base64 = fileData.split(',')[1];
+        const result = await analyzeCollectionPDF(base64);
+        
+        if (result && result.length > 0) {
+          newData = result;
+        } else {
+          alert("لم يتم العثور على بيانات في الملف.");
+          return;
+        }
+      } catch (error: any) {
+        console.error("Error analyzing PDF:", error);
+        if (error.message === "MISSING_API_KEY") {
+          alert("تنبيه: مفتاح GEMINI_API_KEY غير متوفر.");
+          setShowAiError(true);
+        } else {
+          alert("حدث خطأ أثناء تحليل الملف.");
+        }
+        return;
+      } finally {
+        setIsAnalyzing(false);
       }
-    } finally {
-      setIsAnalyzing(false);
     }
-  }, []);
+
+    if (newData.length > 0) {
+      if (user) {
+        // Save to Firestore
+        try {
+          // Clear old data for this user if needed, or just append
+          // For this app, we'll replace the current view with the new upload
+          // But in Firestore, we should probably delete old ones first if it's a "new upload"
+          // Or just add them. Let's add them with new IDs.
+          const batchPromises = newData.map(item => {
+            const newDocRef = doc(collection(db, "installments"));
+            return setDoc(newDocRef, {
+              ...item,
+              id: newDocRef.id,
+              uid: user.uid,
+              createdAt: new Date().toISOString()
+            });
+          });
+          await Promise.all(batchPromises);
+        } catch (error) {
+          handleFirestoreError(error, OperationType.WRITE, "installments");
+        }
+      } else {
+        setData(newData);
+      }
+    }
+  }, [user]);
 
   const { getRootProps, getInputProps, isDragActive } = useDropzone({ 
     onDrop,
@@ -299,28 +463,42 @@ export default function App() {
           <p className="text-slate-500">تحليل احترافي لبيانات العملاء والأقساط المستحقة</p>
         </div>
         <div className="flex flex-wrap gap-3">
+          {user ? (
+            <div className="flex items-center gap-3 ml-4 bg-white px-3 py-1.5 rounded-xl border border-slate-200 shadow-sm">
+              <div className="flex flex-col items-end">
+                <span className="text-xs font-bold text-slate-800">{user.displayName}</span>
+                <span className="text-[10px] text-slate-500">{user.email}</span>
+              </div>
+              {user.photoURL ? (
+                <img src={user.photoURL} alt="" className="w-8 h-8 rounded-full border border-indigo-100" />
+              ) : (
+                <div className="w-8 h-8 rounded-full bg-indigo-100 flex items-center justify-center text-indigo-600">
+                  <UserIcon size={16} />
+                </div>
+              )}
+              <button 
+                onClick={handleLogout}
+                className="p-1.5 text-slate-400 hover:text-rose-500 transition-colors"
+                title="تسجيل الخروج"
+              >
+                <LogOut size={18} />
+              </button>
+            </div>
+          ) : (
+            <button 
+              onClick={handleLogin}
+              className="flex items-center gap-2 px-4 py-2 bg-white border border-indigo-200 text-indigo-600 rounded-lg shadow-sm hover:bg-indigo-50 transition-all active:scale-95 group cursor-pointer text-sm"
+            >
+              <LogIn size={18} className="group-hover:translate-x-1 transition-transform" />
+              <span className="font-bold">تسجيل الدخول للحفظ</span>
+            </button>
+          )}
           {showAiError && (
             <div className="flex items-center gap-2 px-4 py-2 bg-amber-50 border border-amber-200 text-amber-800 rounded-lg text-xs animate-pulse">
               <AlertCircle size={16} />
               <span>مفتاح AI غير مفعل. يرجى ضبطه من الإعدادات.</span>
             </div>
           )}
-          <button 
-            type="button"
-            onClick={handleExportExcel}
-            className="flex items-center gap-2 px-4 py-2 bg-emerald-600 text-white rounded-lg shadow-sm hover:bg-emerald-700 transition-all active:scale-95 group cursor-pointer text-sm"
-          >
-            <FileSpreadsheet size={18} className="group-hover:scale-110 transition-transform" />
-            <span className="font-bold">تصدير Excel</span>
-          </button>
-          <button 
-            type="button"
-            onClick={handlePrint}
-            className="flex items-center gap-2 px-4 py-2 bg-white border border-slate-200 rounded-lg shadow-sm hover:bg-slate-50 hover:border-indigo-300 transition-all active:scale-95 group cursor-pointer text-sm"
-          >
-            <Printer size={18} className="text-indigo-600 group-hover:scale-110 transition-transform" />
-            <span className="font-bold text-slate-700">طباعة PDF</span>
-          </button>
           <div {...getRootProps()} className={cn(
             "flex items-center gap-2 px-4 py-2 bg-indigo-600 text-white rounded-lg shadow-sm cursor-pointer hover:bg-indigo-700 transition-all active:scale-95 text-sm",
             isDragActive && "bg-indigo-800 scale-105"
@@ -332,211 +510,267 @@ export default function App() {
         </div>
       </header>
 
-      {/* Print-only First Page (KPIs + Charts) */}
-      <div className="hidden print:block print:break-after-page">
-        <div className="mb-12">
-          <h2 className="text-2xl font-bold mb-6 border-r-4 border-indigo-600 pr-4">ملخص التحصيل العام</h2>
-          <div className="grid grid-cols-4 gap-6">
-            <div className="p-6 bg-slate-50 border-2 border-slate-200 rounded-xl">
-              <p className="text-sm text-slate-500 mb-2">إجمالي القيمة الصافية</p>
-              <p className="text-2xl font-black text-slate-900">{formatCurrency(stats.totalNetValue)}</p>
+      {/* Navigation Tabs (Screen Only) */}
+      <nav className="flex gap-4 mb-8 border-b border-slate-200 print:hidden">
+        <button 
+          onClick={() => setActiveTab("dashboard")}
+          className={cn(
+            "pb-4 px-2 font-bold text-sm transition-all relative",
+            activeTab === "dashboard" ? "text-indigo-600" : "text-slate-500 hover:text-slate-700"
+          )}
+        >
+          <div className="flex items-center gap-2">
+            <TrendingUp size={18} />
+            لوحة التحكم
+          </div>
+          {activeTab === "dashboard" && (
+            <motion.div layoutId="activeTab" className="absolute bottom-0 left-0 right-0 h-0.5 bg-indigo-600" />
+          )}
+        </button>
+        <button 
+          onClick={() => setActiveTab("reports")}
+          className={cn(
+            "pb-4 px-2 font-bold text-sm transition-all relative",
+            activeTab === "reports" ? "text-indigo-600" : "text-slate-500 hover:text-slate-700"
+          )}
+        >
+          <div className="flex items-center gap-2">
+            <FileSpreadsheet size={18} />
+            التقارير والطباعة
+          </div>
+          {activeTab === "reports" && (
+            <motion.div layoutId="activeTab" className="absolute bottom-0 left-0 right-0 h-0.5 bg-indigo-600" />
+          )}
+        </button>
+      </nav>
+
+      {/* Main Content Area */}
+      <main className="print:hidden">
+        {activeTab === "dashboard" ? (
+          <DashboardView 
+            isLoading={isLoading}
+            user={user}
+            stats={stats}
+            data={data}
+            searchTerm={searchTerm}
+            setSearchTerm={setSearchTerm}
+            filterProject={filterProject}
+            setFilterProject={setFilterProject}
+            filteredData={filteredData}
+            formatCurrency={formatCurrency}
+            totals={totals}
+            handleUpdateNote={handleUpdateNote}
+          />
+        ) : (
+          <ReportsView 
+            stats={stats}
+            filteredData={filteredData}
+            formatCurrency={formatCurrency}
+            handlePrint={handlePrint}
+            handleExportExcel={handleExportExcel}
+          />
+        )}
+      </main>
+
+      {/* Print-only Sections (Always Rendered but hidden on screen) */}
+      <div className="hidden print:block">
+        {/* Print-only First Page (KPIs + Charts) */}
+        <div className="print:break-after-page">
+          <div className="mb-12">
+            <h2 className="text-2xl font-bold mb-6 border-r-4 border-indigo-600 pr-4">ملخص التحصيل العام</h2>
+            <div className="grid grid-cols-4 gap-6">
+              <div className="p-6 bg-slate-50 border-2 border-slate-200 rounded-xl">
+                <p className="text-sm text-slate-500 mb-2">إجمالي القيمة الصافية</p>
+                <p className="text-2xl font-black text-slate-900">{formatCurrency(stats.totalNetValue)}</p>
+              </div>
+              <div className="p-6 bg-emerald-50 border-2 border-emerald-200 rounded-xl">
+                <p className="text-sm text-emerald-600 mb-2">إجمالي المحصل الفعلي</p>
+                <p className="text-2xl font-black text-emerald-700">{formatCurrency(stats.totalCollected)}</p>
+              </div>
+              <div className="p-6 bg-rose-50 border-2 border-rose-200 rounded-xl">
+                <p className="text-sm text-rose-600 mb-2">إجمالي المتبقي</p>
+                <p className="text-2xl font-black text-rose-700">{formatCurrency(stats.totalRemaining)}</p>
+              </div>
+              <div className="p-6 bg-indigo-50 border-2 border-indigo-200 rounded-xl">
+                <p className="text-sm text-indigo-600 mb-2">نسبة التحصيل</p>
+                <p className="text-2xl font-black text-indigo-700">{stats.collectionRate.toFixed(1)}%</p>
+              </div>
             </div>
-            <div className="p-6 bg-emerald-50 border-2 border-emerald-200 rounded-xl">
-              <p className="text-sm text-emerald-600 mb-2">إجمالي المحصل الفعلي</p>
-              <p className="text-2xl font-black text-emerald-700">{formatCurrency(stats.totalCollected)}</p>
+          </div>
+
+          <h2 className="text-2xl font-bold mb-6 border-r-4 border-indigo-600 pr-4">التحليل البياني والتدفقات</h2>
+          <div className="grid grid-cols-1 gap-8 mb-8">
+            <div className="bg-white p-6 rounded-2xl border border-slate-200 print:break-inside-avoid">
+              <h3 className="text-lg font-semibold mb-6 flex items-center gap-2">
+                <PieChartIcon size={20} className="text-indigo-600" />
+                توزيع التحصيل حسب المشروع
+              </h3>
+              <div className="h-[450px] w-full">
+                <ResponsiveContainer width="100%" height="100%">
+                  <PieChart>
+                    <Pie
+                      data={stats.projectStats}
+                      cx="50%"
+                      cy="50%"
+                      innerRadius={80}
+                      outerRadius={140}
+                      paddingAngle={5}
+                      dataKey="collected"
+                      nameKey="name"
+                      label={({ name, percent }) => `${name} (${(percent * 100).toFixed(0)}%)`}
+                    >
+                      {stats.projectStats.map((entry, index) => (
+                        <Cell key={`cell-${index}`} fill={['#6366f1', '#10b981', '#f43f5e', '#f59e0b', '#8b5cf6'][index % 5]} />
+                      ))}
+                    </Pie>
+                    <Tooltip formatter={(value: number) => formatCurrency(value)} />
+                    <Legend />
+                  </PieChart>
+                </ResponsiveContainer>
+              </div>
             </div>
-            <div className="p-6 bg-rose-50 border-2 border-rose-200 rounded-xl">
-              <p className="text-sm text-rose-600 mb-2">إجمالي المتبقي</p>
-              <p className="text-2xl font-black text-rose-700">{formatCurrency(stats.totalRemaining)}</p>
-            </div>
-            <div className="p-6 bg-indigo-50 border-2 border-indigo-200 rounded-xl">
-              <p className="text-sm text-indigo-600 mb-2">نسبة التحصيل</p>
-              <p className="text-2xl font-black text-indigo-700">{stats.collectionRate.toFixed(1)}%</p>
+            <div className="bg-white p-6 rounded-2xl border border-slate-200 print:break-inside-avoid">
+              <h3 className="text-lg font-semibold mb-6 flex items-center gap-2">
+                <TrendingUp size={20} className="text-indigo-600" />
+                التدفق المالي الشهري
+              </h3>
+              <div className="h-[400px] w-full">
+                <ResponsiveContainer width="100%" height="100%">
+                  <AreaChart data={stats.monthlyStats} margin={{ top: 50, right: 30, left: 0, bottom: 0 }}>
+                    <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f1f5f9" />
+                    <XAxis dataKey="month" tick={{ fontSize: 12, fontWeight: 600 }} />
+                    <YAxis tickFormatter={(v) => v >= 1000000 ? `${(v/1000000).toFixed(1)}M` : v >= 1000 ? `${(v/1000).toFixed(0)}K` : v} />
+                    <Area type="monotone" dataKey="collected" name="المحصل" stroke="#10b981" fill="#10b981" fillOpacity={0.1} />
+                    <Area type="monotone" dataKey="remaining" name="المتبقي" stroke="#f43f5e" fill="#f43f5e" fillOpacity={0.1} />
+                  </AreaChart>
+                </ResponsiveContainer>
+              </div>
             </div>
           </div>
         </div>
 
-        <h2 className="text-2xl font-bold mb-6 border-r-4 border-indigo-600 pr-4">التحليل البياني والتدفقات</h2>
-        <div className="grid grid-cols-1 gap-8 mb-8">
-          <div className="bg-white p-6 rounded-2xl border border-slate-200 print:break-inside-avoid">
-            <h3 className="text-lg font-semibold mb-6 flex items-center gap-2">
-              <PieChartIcon size={20} className="text-indigo-600" />
-              توزيع التحصيل حسب المشروع
-            </h3>
-            <div className="h-[450px] w-full">
-              <ResponsiveContainer width="100%" height="100%">
-                <PieChart>
-                  <Pie
-                    data={stats.projectStats}
-                    cx="50%"
-                    cy="50%"
-                    innerRadius={80}
-                    outerRadius={140}
-                    paddingAngle={5}
-                    dataKey="collected"
-                    nameKey="name"
-                    label={({ name, percent }) => `${name} (${(percent * 100).toFixed(0)}%)`}
-                  >
-                    {stats.projectStats.map((entry, index) => (
-                      <Cell key={`cell-${index}`} fill={['#6366f1', '#10b981', '#f43f5e', '#f59e0b', '#8b5cf6'][index % 5]} />
-                    ))}
-                  </Pie>
-                  <Tooltip formatter={(value: number) => formatCurrency(value)} />
-                  <Legend />
-                </PieChart>
-              </ResponsiveContainer>
-            </div>
-          </div>
-          <div className="bg-white p-6 rounded-2xl border border-slate-200 print:break-inside-avoid">
-            <h3 className="text-lg font-semibold mb-6 flex items-center gap-2">
-              <TrendingUp size={20} className="text-indigo-600" />
-              التدفق المالي الشهري
-            </h3>
-            <div className="h-[400px] w-full">
-              <ResponsiveContainer width="100%" height="100%">
-                <AreaChart data={stats.monthlyStats} margin={{ top: 50, right: 30, left: 0, bottom: 0 }}>
-                  <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f1f5f9" />
-                  <XAxis dataKey="month" tick={{ fontSize: 12, fontWeight: 600 }} />
-                  <YAxis tickFormatter={(v) => v >= 1000000 ? `${(v/1000000).toFixed(1)}M` : v >= 1000 ? `${(v/1000).toFixed(0)}K` : v} />
-                  <Area type="monotone" dataKey="collected" name="المحصل" stroke="#10b981" fill="#10b981" fillOpacity={0.1} />
-                  <Area type="monotone" dataKey="remaining" name="المتبقي" stroke="#f43f5e" fill="#f43f5e" fillOpacity={0.1} />
-                </AreaChart>
-              </ResponsiveContainer>
-            </div>
-          </div>
+        {/* Table Section Title for Print */}
+        <h2 className="text-2xl font-bold mb-6 border-r-4 border-indigo-600 pr-4">تفاصيل البيانات والتحصيلات</h2>
+        
+        {/* Print Table */}
+        <div className="overflow-x-auto">
+          <table className="w-full text-right border-collapse border border-slate-200">
+            <thead>
+              <tr className="bg-slate-50 text-slate-900 border-b-2 border-slate-300">
+                <th className="px-4 py-3 font-bold border">العميل</th>
+                <th className="px-4 py-3 font-bold border">المشروع</th>
+                <th className="px-4 py-3 font-bold border">الوحدة</th>
+                <th className="px-4 py-3 font-bold border">التاريخ</th>
+                <th className="px-4 py-3 font-bold border">صافي القيمة</th>
+                <th className="px-4 py-3 font-bold border text-center">المحصل</th>
+                <th className="px-4 py-3 font-bold border text-center">المتبقي</th>
+                <th className="px-4 py-3 font-bold border">الورقة التجارية</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-slate-200">
+              {filteredData.map((item, idx) => (
+                <tr key={idx} className="border-b">
+                  <td className="px-4 py-2 border">{item.customer}</td>
+                  <td className="px-4 py-2 border">{item.project}</td>
+                  <td className="px-4 py-2 border">{item.unitCode}</td>
+                  <td className="px-4 py-2 border">{item.date}</td>
+                  <td className="px-4 py-2 border font-bold">{formatCurrency(item.netValue)}</td>
+                  <td className="px-4 py-2 border text-center">{formatCurrency(item.collected)}</td>
+                  <td className="px-4 py-2 border text-center">{formatCurrency(item.remaining)}</td>
+                  <td className="px-4 py-2 border text-xs">{item.commercialPaper || "-"}</td>
+                </tr>
+              ))}
+            </tbody>
+            <tfoot className="bg-slate-50 font-bold">
+              <tr>
+                <td colSpan={4} className="px-4 py-3 border">الإجمالي</td>
+                <td className="px-4 py-3 border">{formatCurrency(totals.netValue)}</td>
+                <td className="px-4 py-3 border text-center">{formatCurrency(totals.collected)}</td>
+                <td className="px-4 py-3 border text-center">{formatCurrency(totals.remaining)}</td>
+                <td className="px-4 py-3 border"></td>
+              </tr>
+            </tfoot>
+          </table>
         </div>
-        <div className="page-break" />
+
+        {/* Footer / Summary for Print */}
+        <footer className="mt-16 pt-12 border-t-4 border-slate-900 text-center text-slate-600 text-sm">
+          <div className="grid grid-cols-3 gap-12 mb-16">
+            <div className="text-center">
+              <p className="font-black text-slate-900 text-lg mb-16">إعداد المحاسب</p>
+              <div className="w-48 h-0.5 bg-slate-900 mx-auto"></div>
+              <p className="mt-4 text-slate-400">التوقيع</p>
+            </div>
+            <div className="text-center">
+              <p className="font-black text-slate-900 text-lg mb-16">المراجعة المالية</p>
+              <div className="w-48 h-0.5 bg-slate-900 mx-auto"></div>
+              <p className="mt-4 text-slate-400">التوقيع</p>
+            </div>
+            <div className="text-center">
+              <p className="font-black text-slate-900 text-lg mb-16">اعتماد المدير العام</p>
+              <div className="w-48 h-0.5 bg-slate-900 mx-auto"></div>
+              <p className="mt-4 text-slate-400">التوقيع</p>
+            </div>
+          </div>
+          <div className="flex justify-between items-center text-xs text-slate-500 border-t border-slate-200 pt-6">
+            <p>تاريخ الاستخراج: {new Date().toLocaleString('ar-EG')}</p>
+            <p>نظام تحصيل الأقساط العقارية الذكي - تقرير إداري معتمد</p>
+            <p>صفحة 1 من 1</p>
+          </div>
+        </footer>
       </div>
+    </div>
+  );
+}
 
-      {/* KPI Cards (Screen Only) */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6 mb-8 print:hidden">
-        <KpiCard 
-          title="إجمالي القيمة الصافية" 
-          value={formatCurrency(stats.totalNetValue)} 
-          icon={<DollarSign className="text-indigo-600" />} 
-          trend="المستحق"
-          color="indigo"
-        />
-        <KpiCard 
-          title="إجمالي المحصل الفعلي" 
-          value={formatCurrency(stats.totalCollected)} 
-          icon={<CheckCircle2 className="text-emerald-600" />} 
-          trend={`${stats.collectionRate.toFixed(1)}%`}
-          color="emerald"
-        />
-        <KpiCard 
-          title="إجمالي المتبقي" 
-          value={formatCurrency(stats.totalRemaining)} 
-          icon={<AlertCircle className="text-rose-600" />} 
-          trend="متأخرات"
-          color="rose"
-        />
-        <KpiCard 
-          title="عدد العملاء" 
-          value={data.length.toString()} 
-          icon={<Users className="text-amber-600" />} 
-          trend="نشط"
-          color="amber"
-        />
-      </div>
-
-      {/* Charts Section (Screen Only) */}
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-8 mb-8 print:hidden">
-        <div className="bg-white p-6 rounded-2xl shadow-sm border border-slate-100 print:shadow-none print:border-slate-300">
-          <h3 className="text-lg font-semibold mb-6 flex items-center gap-2">
-            <PieChartIcon size={20} className="text-indigo-600" />
-            توزيع التحصيل حسب المشروع
-          </h3>
-          <div className="h-[400px]">
-            <ResponsiveContainer width="100%" height="100%">
-              <PieChart>
-                <Pie
-                  data={stats.projectStats}
-                  cx="50%"
-                  cy="50%"
-                  innerRadius={60}
-                  outerRadius={100}
-                  paddingAngle={5}
-                  dataKey="collected"
-                  nameKey="name"
-                  label={({ name, percent }) => `${name} (${(percent * 100).toFixed(0)}%)`}
-                >
-                  {stats.projectStats.map((entry, index) => (
-                    <Cell key={`cell-${index}`} fill={['#6366f1', '#10b981', '#f43f5e', '#f59e0b', '#8b5cf6'][index % 5]} />
-                  ))}
-                </Pie>
-                <Tooltip formatter={(value: number) => formatCurrency(value)} />
-                <Legend />
-              </PieChart>
-            </ResponsiveContainer>
-          </div>
+function DashboardView({ 
+  isLoading, user, stats, data, searchTerm, setSearchTerm, 
+  filterProject, setFilterProject, filteredData, formatCurrency, totals, handleUpdateNote 
+}: any) {
+  return (
+    <>
+      {/* KPI Cards */}
+      {isLoading && user ? (
+        <div className="flex items-center justify-center py-20">
+          <Loader2 className="animate-spin text-indigo-600" size={48} />
+          <span className="mr-4 text-xl font-bold text-slate-600">جاري تحميل بياناتك السحابية...</span>
         </div>
-
-        <div className="bg-white p-6 rounded-2xl shadow-sm border border-slate-100 print:shadow-none print:border-slate-300">
-          <h3 className="text-lg font-semibold mb-6 flex items-center gap-2">
-            <TrendingUp size={20} className="text-indigo-600" />
-            التدفق المالي الشهري
-          </h3>
-          <div className="h-[400px]">
-            <ResponsiveContainer width="100%" height="100%">
-              <AreaChart data={stats.monthlyStats} margin={{ top: 50, right: 30, left: 0, bottom: 0 }}>
-                <defs>
-                  <linearGradient id="colorCollected" x1="0" y1="0" x2="0" y2="1">
-                    <stop offset="5%" stopColor="#10b981" stopOpacity={0.3}/>
-                    <stop offset="95%" stopColor="#10b981" stopOpacity={0}/>
-                  </linearGradient>
-                </defs>
-                <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f1f5f9" />
-                <XAxis dataKey="month" tick={{ fontSize: 12, fill: '#64748b' }} axisLine={false} tickLine={false} />
-                <YAxis 
-                  tickFormatter={(v) => v >= 1000000 ? `${(v/1000000).toFixed(1)}M` : v >= 1000 ? `${(v/1000).toFixed(0)}K` : v}
-                  tick={{ fontSize: 10, fill: '#64748b' }} 
-                  axisLine={false} 
-                  tickLine={false} 
-                />
-                <Tooltip 
-                  contentStyle={{ borderRadius: '12px', border: 'none', boxShadow: '0 10px 15px -3px rgb(0 0 0 / 0.1)' }}
-                  formatter={(value: number) => formatCurrency(value)} 
-                />
-                <Legend verticalAlign="top" align="right" iconType="circle" height={36} />
-                <Area 
-                  type="monotone" 
-                  dataKey="collected" 
-                  name="المحصل الفعلي" 
-                  stroke="#10b981" 
-                  strokeWidth={3}
-                  fillOpacity={1} 
-                  fill="url(#colorCollected)" 
-                >
-                  <LabelList 
-                    dataKey="collected" 
-                    position="top" 
-                    offset={10}
-                    formatter={(v: number) => v > 100000 ? formatCurrency(v) : ''} 
-                    style={{ fontSize: '10px', fontWeight: '700', fill: '#059669' }} 
-                  />
-                </Area>
-                <Area 
-                  type="monotone" 
-                  dataKey="remaining" 
-                  name="المتبقي" 
-                  stroke="#f43f5e" 
-                  strokeWidth={2}
-                  strokeDasharray="5 5"
-                  fill="transparent" 
-                />
-              </AreaChart>
-            </ResponsiveContainer>
-          </div>
+      ) : (
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6 mb-8">
+          <KpiCard 
+            title="إجمالي القيمة الصافية" 
+            value={formatCurrency(stats.totalNetValue)} 
+            icon={<DollarSign className="text-indigo-600" />} 
+            trend="المستحق"
+            color="indigo"
+          />
+          <KpiCard 
+            title="إجمالي المحصل الفعلي" 
+            value={formatCurrency(stats.totalCollected)} 
+            icon={<CheckCircle2 className="text-emerald-600" />} 
+            trend={`${stats.collectionRate.toFixed(1)}%`}
+            color="emerald"
+          />
+          <KpiCard 
+            title="إجمالي المتبقي" 
+            value={formatCurrency(stats.totalRemaining)} 
+            icon={<AlertCircle className="text-rose-600" />} 
+            trend="متأخرات"
+            color="rose"
+          />
+          <KpiCard 
+            title="عدد العملاء" 
+            value={data.length.toString()} 
+            icon={<Users className="text-amber-600" />} 
+            trend="نشط"
+            color="amber"
+          />
         </div>
-      </div>
-
-      {/* Table Section Title for Print */}
-      <h2 className="hidden print:block text-2xl font-bold mb-6 border-r-4 border-indigo-600 pr-4">تفاصيل البيانات والتحصيلات</h2>
+      )}
 
       {/* Data Table */}
-      <div className="bg-white rounded-2xl shadow-sm border border-slate-100 overflow-hidden print:shadow-none print:border-slate-300 print:mt-8 print:break-before-page">
-        <div className="p-6 border-b border-slate-100 flex flex-col md:flex-row justify-between items-start md:items-center gap-4 print:hidden">
+      <div className="bg-white rounded-2xl shadow-sm border border-slate-100 overflow-hidden">
+        <div className="p-6 border-b border-slate-100 flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
           <h3 className="text-lg font-semibold">تفاصيل العملاء والأقساط</h3>
           <div className="flex flex-wrap gap-3 w-full md:w-auto">
             <div className="relative flex-1 md:w-64">
@@ -555,14 +789,14 @@ export default function App() {
               onChange={(e) => setFilterProject(e.target.value)}
             >
               <option value="الكل">كل المشاريع</option>
-              {Array.from(new Set(data.map(item => item.project))).map(p => (
+              {Array.from(new Set(data.map((item: any) => item.project))).map((p: any) => (
                 <option key={p} value={p}>{p}</option>
               ))}
             </select>
           </div>
         </div>
 
-        <div className="overflow-x-auto print:overflow-visible">
+        <div className="overflow-x-auto">
           <table className="w-full text-right border-collapse">
             <thead>
               <tr className="bg-slate-50 text-slate-500 text-sm uppercase tracking-wider">
@@ -580,7 +814,7 @@ export default function App() {
             </thead>
             <tbody className="divide-y divide-slate-100">
               <AnimatePresence>
-                {filteredData.map((item, idx) => (
+                {filteredData.map((item: any, idx: number) => (
                   <motion.tr 
                     key={`${item.customer}-${item.installmentCode}-${idx}`}
                     initial={{ opacity: 0, y: 10 }}
@@ -632,32 +866,142 @@ export default function App() {
           </table>
         </div>
       </div>
+    </>
+  );
+}
 
-      {/* Footer / Summary for Print */}
-      <footer className="mt-16 pt-12 border-t-4 border-slate-900 text-center text-slate-600 text-sm hidden print:block">
-        <div className="grid grid-cols-3 gap-12 mb-16">
-          <div className="text-center">
-            <p className="font-black text-slate-900 text-lg mb-16">إعداد المحاسب</p>
-            <div className="w-48 h-0.5 bg-slate-900 mx-auto"></div>
-            <p className="mt-4 text-slate-400">التوقيع</p>
-          </div>
-          <div className="text-center">
-            <p className="font-black text-slate-900 text-lg mb-16">المراجعة المالية</p>
-            <div className="w-48 h-0.5 bg-slate-900 mx-auto"></div>
-            <p className="mt-4 text-slate-400">التوقيع</p>
-          </div>
-          <div className="text-center">
-            <p className="font-black text-slate-900 text-lg mb-16">اعتماد المدير العام</p>
-            <div className="w-48 h-0.5 bg-slate-900 mx-auto"></div>
-            <p className="mt-4 text-slate-400">التوقيع</p>
+function ReportsView({ stats, filteredData, formatCurrency, handlePrint, handleExportExcel }: any) {
+  return (
+    <div className="space-y-8">
+      {/* Reports Header */}
+      <div className="bg-white p-6 rounded-2xl shadow-sm border border-slate-100 flex flex-col md:flex-row justify-between items-center gap-4">
+        <div>
+          <h2 className="text-xl font-bold text-slate-800">مركز التقارير والطباعة</h2>
+          <p className="text-slate-500 text-sm">استخرج تقارير مفصلة وقم بطباعتها أو تصديرها</p>
+        </div>
+        <div className="flex gap-3">
+          <button 
+            onClick={handleExportExcel}
+            className="flex items-center gap-2 px-6 py-2.5 bg-emerald-600 text-white rounded-xl shadow-md hover:bg-emerald-700 transition-all active:scale-95 font-bold"
+          >
+            <FileSpreadsheet size={20} />
+            تصدير Excel
+          </button>
+          <button 
+            onClick={handlePrint}
+            className="flex items-center gap-2 px-6 py-2.5 bg-indigo-600 text-white rounded-xl shadow-md hover:bg-indigo-700 transition-all active:scale-95 font-bold"
+          >
+            <Printer size={20} />
+            طباعة التقرير (PDF)
+          </button>
+        </div>
+      </div>
+
+      {/* Summary Stats for Reports */}
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+        <div className="bg-white p-6 rounded-2xl border border-slate-100 shadow-sm">
+          <p className="text-slate-500 text-sm mb-1">إجمالي المستحق</p>
+          <p className="text-2xl font-bold text-slate-800">{formatCurrency(stats.totalNetValue)}</p>
+        </div>
+        <div className="bg-white p-6 rounded-2xl border border-slate-100 shadow-sm">
+          <p className="text-slate-500 text-sm mb-1">المحصل الفعلي</p>
+          <p className="text-2xl font-bold text-emerald-600">{formatCurrency(stats.totalCollected)}</p>
+        </div>
+        <div className="bg-white p-6 rounded-2xl border border-slate-100 shadow-sm">
+          <p className="text-slate-500 text-sm mb-1">المتبقي للتحصيل</p>
+          <p className="text-2xl font-bold text-rose-600">{formatCurrency(stats.totalRemaining)}</p>
+        </div>
+      </div>
+
+      {/* Charts Section */}
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
+        <div className="bg-white p-6 rounded-2xl shadow-sm border border-slate-100">
+          <h3 className="text-lg font-semibold mb-6 flex items-center gap-2">
+            <PieChartIcon size={20} className="text-indigo-600" />
+            توزيع التحصيل حسب المشروع
+          </h3>
+          <div className="h-[350px]">
+            <ResponsiveContainer width="100%" height="100%">
+              <PieChart>
+                <Pie
+                  data={stats.projectStats}
+                  cx="50%"
+                  cy="50%"
+                  innerRadius={60}
+                  outerRadius={100}
+                  paddingAngle={5}
+                  dataKey="collected"
+                  nameKey="name"
+                  label={({ name, percent }) => `${name} (${(percent * 100).toFixed(0)}%)`}
+                >
+                  {stats.projectStats.map((entry: any, index: number) => (
+                    <Cell key={`cell-${index}`} fill={['#6366f1', '#10b981', '#f43f5e', '#f59e0b', '#8b5cf6'][index % 5]} />
+                  ))}
+                </Pie>
+                <Tooltip formatter={(value: number) => formatCurrency(value)} />
+                <Legend />
+              </PieChart>
+            </ResponsiveContainer>
           </div>
         </div>
-        <div className="flex justify-between items-center text-xs text-slate-500 border-t border-slate-200 pt-6">
-          <p>تاريخ الاستخراج: {new Date().toLocaleString('ar-EG')}</p>
-          <p>نظام تحصيل الأقساط العقارية الذكي - تقرير إداري معتمد</p>
-          <p>صفحة 1 من 1</p>
+
+        <div className="bg-white p-6 rounded-2xl shadow-sm border border-slate-100">
+          <h3 className="text-lg font-semibold mb-6 flex items-center gap-2">
+            <TrendingUp size={20} className="text-indigo-600" />
+            التدفق المالي الشهري
+          </h3>
+          <div className="h-[350px]">
+            <ResponsiveContainer width="100%" height="100%">
+              <AreaChart data={stats.monthlyStats} margin={{ top: 10, right: 10, left: 0, bottom: 0 }}>
+                <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f1f5f9" />
+                <XAxis dataKey="month" tick={{ fontSize: 10 }} />
+                <YAxis tickFormatter={(v) => v >= 1000000 ? `${(v/1000000).toFixed(1)}M` : v >= 1000 ? `${(v/1000).toFixed(0)}K` : v} tick={{ fontSize: 10 }} />
+                <Tooltip formatter={(value: number) => formatCurrency(value)} />
+                <Area type="monotone" dataKey="collected" name="المحصل" stroke="#10b981" fill="#10b981" fillOpacity={0.1} />
+              </AreaChart>
+            </ResponsiveContainer>
+          </div>
         </div>
-      </footer>
+      </div>
+
+      {/* Project Breakdown Table */}
+      <div className="bg-white p-6 rounded-2xl shadow-sm border border-slate-100">
+        <h3 className="text-lg font-semibold mb-6">تحليل المشاريع</h3>
+        <div className="overflow-x-auto">
+          <table className="w-full text-right">
+            <thead>
+              <tr className="text-slate-500 text-sm border-b border-slate-100">
+                <th className="pb-4">المشروع</th>
+                <th className="pb-4">المستحق</th>
+                <th className="pb-4">المحصل</th>
+                <th className="pb-4">المتبقي</th>
+                <th className="pb-4">نسبة الإنجاز</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-slate-50">
+              {stats.projectStats.map((p: any) => (
+                <tr key={p.name}>
+                  <td className="py-4 font-bold">{p.name}</td>
+                  <td className="py-4">{formatCurrency(p.total)}</td>
+                  <td className="py-4 text-emerald-600">{formatCurrency(p.collected)}</td>
+                  <td className="py-4 text-rose-600">{formatCurrency(p.remaining)}</td>
+                  <td className="py-4">
+                    <div className="flex items-center gap-2">
+                      <div className="flex-1 h-2 bg-slate-100 rounded-full overflow-hidden">
+                        <div 
+                          className="h-full bg-indigo-600 rounded-full" 
+                          style={{ width: `${(p.collected / p.total) * 100}%` }}
+                        />
+                      </div>
+                      <span className="text-xs font-bold">{((p.collected / p.total) * 100).toFixed(1)}%</span>
+                    </div>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      </div>
     </div>
   );
 }
