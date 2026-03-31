@@ -11,7 +11,7 @@ import {
 import { 
   Upload, TrendingUp, DollarSign, Users, AlertCircle, 
   Download, Printer, Search, CheckCircle2, Loader2, Calendar, X,
-  FileSpreadsheet, PieChart as PieChartIcon, LogIn, LogOut, User as UserIcon
+  FileSpreadsheet, PieChart as PieChartIcon, LogIn, LogOut, User as UserIcon, Trash2
 } from 'lucide-react';
 import * as XLSX from 'xlsx';
 import { useDropzone } from 'react-dropzone';
@@ -21,7 +21,7 @@ import { InstallmentData, DashboardStats } from './types';
 import { analyzeCollectionPDF, isAIConfigured } from './services/geminiService';
 import { 
   auth, db, googleProvider, signInWithPopup, signOut, onAuthStateChanged,
-  collection, doc, setDoc, deleteDoc, onSnapshot, query, where, 
+  collection, doc, setDoc, deleteDoc, onSnapshot, query, where, getDocs,
   handleFirestoreError, OperationType
 } from './firebase';
 import { User } from 'firebase/auth';
@@ -192,6 +192,24 @@ function MainApp() {
     }
   };
 
+  const handleDeleteAll = async () => {
+    if (!isAdmin) return;
+    if (!window.confirm("هل أنت متأكد من حذف جميع البيانات الحالية؟ لا يمكن التراجع عن هذا الإجراء.")) return;
+    
+    setIsLoading(true);
+    try {
+      const q = query(collection(db, "installments"), where("uid", "==", "public"));
+      const snapshot = await getDocs(q);
+      const deletePromises = snapshot.docs.map(doc => deleteDoc(doc.ref));
+      await Promise.all(deletePromises);
+      alert("تم حذف جميع البيانات بنجاح.");
+    } catch (error) {
+      handleFirestoreError(error, OperationType.DELETE, "installments");
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
   const handleUpdateNote = async (customer: string, installmentCode: string, newNote: string) => {
     // Optimistic update
     setData(prev => prev.map(item => 
@@ -355,6 +373,14 @@ function MainApp() {
       if (user) {
         // Save to Firestore with deterministic IDs to prevent duplication
         try {
+          // Clear old data if admin is uploading (per user request)
+          if (isAdmin) {
+            const q = query(collection(db, "installments"), where("uid", "==", "public"));
+            const snapshot = await getDocs(q);
+            const deletePromises = snapshot.docs.map(doc => deleteDoc(doc.ref));
+            await Promise.all(deletePromises);
+          }
+
           const batchPromises = newData.map(item => {
             // Create a unique deterministic ID based on customer, project, unit and installment code
             // This ensures that re-uploading the same data updates existing records instead of duplicating them
@@ -601,13 +627,23 @@ function MainApp() {
             </div>
           )}
           {isAdmin && (
-            <div {...getRootProps()} className={cn(
-              "flex items-center gap-2 px-4 py-2 bg-indigo-600 text-white rounded-lg shadow-sm cursor-pointer hover:bg-indigo-700 transition-all active:scale-95 text-sm",
-              isDragActive && "bg-indigo-800 scale-105"
-            )}>
-              <input {...getInputProps()} />
-              {isAnalyzing ? <Loader2 className="animate-spin" size={18} /> : <Upload size={18} />}
-              <span className="font-bold">{isAnalyzing ? "جاري التحليل..." : "رفع ملف PDF / Excel"}</span>
+            <div className="flex gap-2">
+              <button 
+                onClick={handleDeleteAll}
+                className="flex items-center gap-2 px-4 py-2 bg-rose-600 text-white rounded-lg shadow-sm hover:bg-rose-700 transition-all active:scale-95 text-sm font-bold"
+                title="حذف جميع البيانات الحالية"
+              >
+                <Trash2 size={18} />
+                <span>حذف الكل</span>
+              </button>
+              <div {...getRootProps()} className={cn(
+                "flex items-center gap-2 px-4 py-2 bg-indigo-600 text-white rounded-lg shadow-sm cursor-pointer hover:bg-indigo-700 transition-all active:scale-95 text-sm",
+                isDragActive && "bg-indigo-800 scale-105"
+              )}>
+                <input {...getInputProps()} />
+                {isAnalyzing ? <Loader2 className="animate-spin" size={18} /> : <Upload size={18} />}
+                <span className="font-bold">{isAnalyzing ? "جاري التحليل..." : "رفع ملف PDF / Excel"}</span>
+              </div>
             </div>
           )}
         </div>
@@ -681,45 +717,45 @@ function MainApp() {
       {/* Print-only Sections (Always Rendered but hidden on screen) */}
       <div className="hidden print:block">
         {/* Print-only First Page (KPIs + Charts) */}
-        <div className="print:break-after-page min-h-screen">
-          <div className="mb-12">
-            <h2 className="text-3xl font-bold mb-8 border-r-8 border-indigo-600 pr-6 py-2 bg-slate-50">ملخص التحصيل العام - التقرير الإداري</h2>
-            <div className="grid grid-cols-2 gap-8 mb-12">
-              <div className="p-8 bg-white border-2 border-slate-200 rounded-2xl shadow-sm">
-                <p className="text-lg text-slate-500 mb-2 font-bold">إجمالي القيمة الصافية</p>
-                <p className="text-4xl font-black text-slate-900">{formatCurrency(stats.totalNetValue)}</p>
+        <div className="print:break-after-page" style={{ pageBreakAfter: 'always' }}>
+          <div className="mb-6">
+            <h2 className="text-2xl font-bold mb-6 border-r-8 border-indigo-600 pr-4 py-2 bg-slate-50">ملخص التحصيل العام - التقرير الإداري</h2>
+            <div className="grid grid-cols-2 gap-4 mb-6">
+              <div className="p-4 bg-white border-2 border-slate-200 rounded-xl shadow-sm">
+                <p className="text-sm text-slate-500 mb-1 font-bold">إجمالي القيمة الصافية</p>
+                <p className="text-2xl font-black text-slate-900">{formatCurrency(stats.totalNetValue)}</p>
               </div>
-              <div className="p-8 bg-white border-2 border-emerald-200 rounded-2xl shadow-sm">
-                <p className="text-lg text-emerald-600 mb-2 font-bold">إجمالي المحصل الفعلي</p>
-                <p className="text-4xl font-black text-emerald-700">{formatCurrency(stats.totalCollected)}</p>
+              <div className="p-4 bg-white border-2 border-emerald-200 rounded-xl shadow-sm">
+                <p className="text-sm text-emerald-600 mb-1 font-bold">إجمالي المحصل الفعلي</p>
+                <p className="text-2xl font-black text-emerald-700">{formatCurrency(stats.totalCollected)}</p>
               </div>
-              <div className="p-8 bg-white border-2 border-rose-200 rounded-2xl shadow-sm">
-                <p className="text-lg text-rose-600 mb-2 font-bold">إجمالي المتبقي</p>
-                <p className="text-4xl font-black text-rose-700">{formatCurrency(stats.totalRemaining)}</p>
+              <div className="p-4 bg-white border-2 border-rose-200 rounded-xl shadow-sm">
+                <p className="text-sm text-rose-600 mb-1 font-bold">إجمالي المتبقي</p>
+                <p className="text-2xl font-black text-rose-700">{formatCurrency(stats.totalRemaining)}</p>
               </div>
-              <div className="p-8 bg-white border-2 border-indigo-200 rounded-2xl shadow-sm">
-                <p className="text-lg text-indigo-600 mb-2 font-bold">نسبة التحصيل</p>
-                <p className="text-4xl font-black text-indigo-700">{stats.collectionRate.toFixed(1)}%</p>
+              <div className="p-4 bg-white border-2 border-indigo-200 rounded-xl shadow-sm">
+                <p className="text-sm text-indigo-600 mb-1 font-bold">نسبة التحصيل</p>
+                <p className="text-2xl font-black text-indigo-700">{stats.collectionRate.toFixed(1)}%</p>
               </div>
             </div>
           </div>
 
-          <h2 className="text-2xl font-bold mb-8 border-r-4 border-indigo-600 pr-4">التحليل البياني والتدفقات</h2>
-          <div className="grid grid-cols-1 gap-12">
-            <div className="bg-white p-8 rounded-2xl border-2 border-slate-100 print:break-inside-avoid shadow-sm">
-              <h3 className="text-xl font-bold mb-8 flex items-center gap-3">
-                <PieChartIcon size={24} className="text-indigo-600" />
+          <h2 className="text-xl font-bold mb-4 border-r-4 border-indigo-600 pr-3">التحليل البياني والتدفقات</h2>
+          <div className="grid grid-cols-1 gap-6">
+            <div className="bg-white p-4 rounded-xl border-2 border-slate-100 print:break-inside-avoid shadow-sm">
+              <h3 className="text-lg font-bold mb-4 flex items-center gap-2">
+                <PieChartIcon size={20} className="text-indigo-600" />
                 توزيع التحصيل حسب المشروع
               </h3>
-              <div className="h-[500px] w-full flex justify-center items-center">
+              <div className="h-[320px] w-full flex justify-center items-center">
                 {stats.projectStats.length > 0 ? (
-                  <PieChart width={800} height={500}>
+                  <PieChart width={700} height={320}>
                     <Pie
                       data={stats.projectStats}
                       cx="50%"
                       cy="50%"
-                      innerRadius={100}
-                      outerRadius={180}
+                      innerRadius={60}
+                      outerRadius={110}
                       paddingAngle={5}
                       dataKey="collected"
                       nameKey="name"
@@ -730,7 +766,7 @@ function MainApp() {
                       ))}
                     </Pie>
                     <Tooltip formatter={(value: number) => formatCurrency(value)} />
-                    <Legend iconSize={20} wrapperStyle={{ paddingTop: '20px' }} />
+                    <Legend iconSize={14} wrapperStyle={{ paddingTop: '10px' }} />
                   </PieChart>
                 ) : (
                   <div className="h-full flex items-center justify-center text-slate-400">لا توجد بيانات للمشاريع</div>
@@ -738,20 +774,20 @@ function MainApp() {
               </div>
             </div>
             
-            <div className="bg-white p-8 rounded-2xl border-2 border-slate-100 print:break-inside-avoid shadow-sm">
-              <h3 className="text-xl font-bold mb-8 flex items-center gap-3">
-                <TrendingUp size={24} className="text-indigo-600" />
+            <div className="bg-white p-4 rounded-xl border-2 border-slate-100 print:break-inside-avoid shadow-sm">
+              <h3 className="text-lg font-bold mb-4 flex items-center gap-2">
+                <TrendingUp size={20} className="text-indigo-600" />
                 التدفق المالي الشهري
               </h3>
-              <div className="h-[450px] w-full flex justify-center items-center">
+              <div className="h-[320px] w-full flex justify-center items-center">
                 {stats.monthlyStats.length > 0 ? (
-                  <AreaChart width={800} height={450} data={stats.monthlyStats} margin={{ top: 50, right: 30, left: 0, bottom: 0 }}>
+                  <AreaChart width={700} height={320} data={stats.monthlyStats} margin={{ top: 20, right: 30, left: 0, bottom: 0 }}>
                     <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f1f5f9" />
-                    <XAxis dataKey="month" tick={{ fontSize: 14, fontWeight: 700 }} />
-                    <YAxis tickFormatter={(v) => v >= 1000000 ? `${(v/1000000).toFixed(1)}M` : v >= 1000 ? `${(v/1000).toFixed(0)}K` : v} tick={{ fontSize: 12 }} />
-                    <Area type="monotone" dataKey="collected" name="المحصل" stroke="#10b981" fill="#10b981" fillOpacity={0.1} strokeWidth={3} />
-                    <Area type="monotone" dataKey="remaining" name="المتبقي" stroke="#f43f5e" fill="#f43f5e" fillOpacity={0.1} strokeWidth={3} />
-                    <Legend verticalAlign="top" height={36}/>
+                    <XAxis dataKey="month" tick={{ fontSize: 12, fontWeight: 700 }} />
+                    <YAxis tickFormatter={(v) => v >= 1000000 ? `${(v/1000000).toFixed(1)}M` : v >= 1000 ? `${(v/1000).toFixed(0)}K` : v} tick={{ fontSize: 10 }} />
+                    <Area type="monotone" dataKey="collected" name="المحصل" stroke="#10b981" fill="#10b981" fillOpacity={0.1} strokeWidth={2} />
+                    <Area type="monotone" dataKey="remaining" name="المتبقي" stroke="#f43f5e" fill="#f43f5e" fillOpacity={0.1} strokeWidth={2} />
+                    <Legend verticalAlign="top" height={30} iconSize={12} />
                   </AreaChart>
                 ) : (
                   <div className="h-full flex items-center justify-center text-slate-400">لا توجد بيانات شهرية</div>
@@ -762,8 +798,8 @@ function MainApp() {
         </div>
 
         {/* Table Section (Starts on New Page) */}
-        <div className="print:mt-0">
-          <h2 className="text-3xl font-bold mb-8 border-r-8 border-indigo-600 pr-6 py-2 bg-slate-50">تفاصيل البيانات والتحصيلات</h2>
+        <div className="print:mt-8">
+          <h2 className="text-2xl font-bold mb-6 border-r-8 border-indigo-600 pr-4 py-2 bg-slate-50">تفاصيل البيانات والتحصيلات</h2>
           
           {/* Print Table */}
           <div className="overflow-x-auto">
