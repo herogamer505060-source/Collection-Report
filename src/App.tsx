@@ -814,7 +814,7 @@ function MainApp() {
                 <th className="px-3 py-3 font-black border text-right">صافي القيمة</th>
                 <th className="px-3 py-3 font-black border text-center">المحصل</th>
                 <th className="px-3 py-3 font-black border text-center">المتبقي</th>
-                <th className="px-3 py-3 font-black border text-right">الورقة التجارية</th>
+                <th className="px-3 py-3 font-black border text-right">الملاحظات</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-200">
@@ -827,7 +827,7 @@ function MainApp() {
                   <td className="px-3 py-2 border font-black">{formatCurrency(item.netValue)}</td>
                   <td className="px-3 py-2 border text-center font-black text-emerald-700">{formatCurrency(item.collected)}</td>
                   <td className="px-3 py-2 border text-center font-black text-rose-700">{formatCurrency(item.remaining)}</td>
-                  <td className="px-3 py-2 border font-mono text-[10px]">{item.commercialPaper || "-"}</td>
+                  <td className="px-3 py-2 border text-[10px]">{item.notes || "-"}</td>
                 </tr>
               ))}
             </tbody>
