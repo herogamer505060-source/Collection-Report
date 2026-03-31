@@ -718,55 +718,56 @@ function MainApp() {
       <div className="hidden print:block">
         {/* Print-only First Page (KPIs + Charts) */}
         <div className="print:break-after-page" style={{ pageBreakAfter: 'always' }}>
-          <div className="mb-6">
-            <h2 className="text-2xl font-bold mb-6 border-r-8 border-indigo-600 pr-4 py-2 bg-slate-50">ملخص التحصيل العام - التقرير الإداري</h2>
-            <div className="grid grid-cols-2 gap-4 mb-6">
-              <div className="p-4 bg-white border-2 border-slate-200 rounded-xl shadow-sm">
-                <p className="text-sm text-slate-500 mb-1 font-bold">إجمالي القيمة الصافية</p>
-                <p className="text-2xl font-black text-slate-900">{formatCurrency(stats.totalNetValue)}</p>
+          <div className="mb-4">
+            <h2 className="text-xl font-bold mb-4 border-r-8 border-indigo-600 pr-4 py-1 bg-slate-50">ملخص التحصيل العام - التقرير الإداري</h2>
+            <div className="grid grid-cols-4 gap-3 mb-4">
+              <div className="p-3 bg-white border border-slate-200 rounded-xl shadow-sm">
+                <p className="text-[10px] text-slate-500 mb-1 font-bold">إجمالي القيمة الصافية</p>
+                <p className="text-lg font-black text-slate-900">{formatCurrency(stats.totalNetValue)}</p>
               </div>
-              <div className="p-4 bg-white border-2 border-emerald-200 rounded-xl shadow-sm">
-                <p className="text-sm text-emerald-600 mb-1 font-bold">إجمالي المحصل الفعلي</p>
-                <p className="text-2xl font-black text-emerald-700">{formatCurrency(stats.totalCollected)}</p>
+              <div className="p-3 bg-white border border-emerald-200 rounded-xl shadow-sm">
+                <p className="text-[10px] text-emerald-600 mb-1 font-bold">إجمالي المحصل الفعلي</p>
+                <p className="text-lg font-black text-emerald-700">{formatCurrency(stats.totalCollected)}</p>
               </div>
-              <div className="p-4 bg-white border-2 border-rose-200 rounded-xl shadow-sm">
-                <p className="text-sm text-rose-600 mb-1 font-bold">إجمالي المتبقي</p>
-                <p className="text-2xl font-black text-rose-700">{formatCurrency(stats.totalRemaining)}</p>
+              <div className="p-3 bg-white border border-rose-200 rounded-xl shadow-sm">
+                <p className="text-[10px] text-rose-600 mb-1 font-bold">إجمالي المتبقي</p>
+                <p className="text-lg font-black text-rose-700">{formatCurrency(stats.totalRemaining)}</p>
               </div>
-              <div className="p-4 bg-white border-2 border-indigo-200 rounded-xl shadow-sm">
-                <p className="text-sm text-indigo-600 mb-1 font-bold">نسبة التحصيل</p>
-                <p className="text-2xl font-black text-indigo-700">{stats.collectionRate.toFixed(1)}%</p>
+              <div className="p-3 bg-white border border-indigo-200 rounded-xl shadow-sm">
+                <p className="text-[10px] text-indigo-600 mb-1 font-bold">نسبة التحصيل</p>
+                <p className="text-lg font-black text-indigo-700">{stats.collectionRate.toFixed(1)}%</p>
               </div>
             </div>
           </div>
 
-          <h2 className="text-xl font-bold mb-4 border-r-4 border-indigo-600 pr-3">التحليل البياني والتدفقات</h2>
-          <div className="grid grid-cols-1 gap-6">
-            <div className="bg-white p-4 rounded-xl border-2 border-slate-100 print:break-inside-avoid shadow-sm">
-              <h3 className="text-lg font-bold mb-4 flex items-center gap-2">
-                <PieChartIcon size={20} className="text-indigo-600" />
+          <h2 className="text-lg font-bold mb-4 border-r-4 border-indigo-600 pr-3">التحليل البياني والتدفقات</h2>
+          <div className="grid grid-cols-2 gap-4">
+            <div className="bg-white p-4 rounded-xl border border-slate-200 print:break-inside-avoid shadow-sm">
+              <h3 className="text-sm font-bold mb-4 flex items-center gap-2">
+                <PieChartIcon size={16} className="text-indigo-600" />
                 توزيع التحصيل حسب المشروع
               </h3>
-              <div className="h-[320px] w-full flex justify-center items-center">
+              <div className="h-[280px] w-full flex justify-center items-center">
                 {stats.projectStats.length > 0 ? (
-                  <PieChart width={700} height={320}>
+                  <PieChart width={350} height={280}>
                     <Pie
                       data={stats.projectStats}
                       cx="50%"
                       cy="50%"
-                      innerRadius={60}
-                      outerRadius={110}
+                      innerRadius={40}
+                      outerRadius={80}
                       paddingAngle={5}
                       dataKey="collected"
                       nameKey="name"
                       label={({ name, percent }: any) => `${name} (${(percent * 100).toFixed(0)}%)`}
+                      labelLine={false}
                     >
                       {stats.projectStats.map((entry: any, index: number) => (
                         <Cell key={`cell-${index}`} fill={['#6366f1', '#10b981', '#f43f5e', '#f59e0b', '#8b5cf6'][index % 5]} />
                       ))}
                     </Pie>
                     <Tooltip formatter={(value: number) => formatCurrency(value)} />
-                    <Legend iconSize={14} wrapperStyle={{ paddingTop: '10px' }} />
+                    <Legend iconSize={10} wrapperStyle={{ fontSize: '10px' }} />
                   </PieChart>
                 ) : (
                   <div className="h-full flex items-center justify-center text-slate-400">لا توجد بيانات للمشاريع</div>
@@ -774,20 +775,20 @@ function MainApp() {
               </div>
             </div>
             
-            <div className="bg-white p-4 rounded-xl border-2 border-slate-100 print:break-inside-avoid shadow-sm">
-              <h3 className="text-lg font-bold mb-4 flex items-center gap-2">
-                <TrendingUp size={20} className="text-indigo-600" />
+            <div className="bg-white p-4 rounded-xl border border-slate-200 print:break-inside-avoid shadow-sm">
+              <h3 className="text-sm font-bold mb-4 flex items-center gap-2">
+                <TrendingUp size={16} className="text-indigo-600" />
                 التدفق المالي الشهري
               </h3>
-              <div className="h-[320px] w-full flex justify-center items-center">
+              <div className="h-[280px] w-full flex justify-center items-center">
                 {stats.monthlyStats.length > 0 ? (
-                  <AreaChart width={700} height={320} data={stats.monthlyStats} margin={{ top: 20, right: 30, left: 0, bottom: 0 }}>
+                  <AreaChart width={350} height={280} data={stats.monthlyStats} margin={{ top: 10, right: 10, left: 0, bottom: 0 }}>
                     <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f1f5f9" />
-                    <XAxis dataKey="month" tick={{ fontSize: 12, fontWeight: 700 }} />
-                    <YAxis tickFormatter={(v) => v >= 1000000 ? `${(v/1000000).toFixed(1)}M` : v >= 1000 ? `${(v/1000).toFixed(0)}K` : v} tick={{ fontSize: 10 }} />
+                    <XAxis dataKey="month" tick={{ fontSize: 10, fontWeight: 700 }} />
+                    <YAxis tickFormatter={(v) => v >= 1000000 ? `${(v/1000000).toFixed(1)}M` : v >= 1000 ? `${(v/1000).toFixed(0)}K` : v} tick={{ fontSize: 8 }} />
                     <Area type="monotone" dataKey="collected" name="المحصل" stroke="#10b981" fill="#10b981" fillOpacity={0.1} strokeWidth={2} />
                     <Area type="monotone" dataKey="remaining" name="المتبقي" stroke="#f43f5e" fill="#f43f5e" fillOpacity={0.1} strokeWidth={2} />
-                    <Legend verticalAlign="top" height={30} iconSize={12} />
+                    <Legend verticalAlign="top" height={20} iconSize={10} wrapperStyle={{ fontSize: '10px' }} />
                   </AreaChart>
                 ) : (
                   <div className="h-full flex items-center justify-center text-slate-400">لا توجد بيانات شهرية</div>
@@ -798,8 +799,8 @@ function MainApp() {
         </div>
 
         {/* Table Section (Starts on New Page) */}
-        <div className="print:mt-8">
-          <h2 className="text-2xl font-bold mb-6 border-r-8 border-indigo-600 pr-4 py-2 bg-slate-50">تفاصيل البيانات والتحصيلات</h2>
+        <div className="print:mt-4">
+          <h2 className="text-xl font-bold mb-4 border-r-8 border-indigo-600 pr-4 py-1 bg-slate-50">تفاصيل البيانات والتحصيلات</h2>
           
           {/* Print Table */}
           <div className="overflow-x-auto">
