@@ -138,10 +138,20 @@ function MainApp() {
 
   // Firestore Sync
   useEffect(() => {
-    if (!isAuthReady || !user) return;
-
     setIsLoading(true);
-    const q = query(collection(db, "installments"), where("uid", "==", user.uid));
+    
+    let q;
+    if (user) {
+      // If admin, fetch public data. Otherwise fetch user's own data.
+      if (user.email === ADMIN_EMAIL) {
+        q = query(collection(db, "installments"), where("uid", "==", "public"));
+      } else {
+        q = query(collection(db, "installments"), where("uid", "==", user.uid));
+      }
+    } else {
+      // Not logged in: fetch public data
+      q = query(collection(db, "installments"), where("uid", "==", "public"));
+    }
     
     const unsubscribe = onSnapshot(q, (snapshot) => {
       const installments: InstallmentData[] = [];
@@ -149,11 +159,17 @@ function MainApp() {
         installments.push({ id: doc.id, ...doc.data() } as InstallmentData);
       });
       
-      // Sort by date or createdAt if needed
-      setData(installments.length > 0 ? installments : SAMPLE_DATA);
+      // If no data found and not logged in, show sample data
+      // If logged in and no data, show empty or sample
+      if (installments.length === 0 && !user) {
+        setData(SAMPLE_DATA);
+      } else {
+        setData(installments);
+      }
       setIsLoading(false);
     }, (error) => {
       handleFirestoreError(error, OperationType.GET, "installments");
+      setIsLoading(false);
     });
 
     return () => unsubscribe();
@@ -348,7 +364,7 @@ function MainApp() {
             return setDoc(docRef, {
               ...item,
               id: deterministicId,
-              uid: user.uid,
+              uid: isAdmin ? "public" : user.uid,
               updatedAt: new Date().toISOString()
             }, { merge: true });
           });
@@ -665,45 +681,45 @@ function MainApp() {
       {/* Print-only Sections (Always Rendered but hidden on screen) */}
       <div className="hidden print:block">
         {/* Print-only First Page (KPIs + Charts) */}
-        <div className="print:break-after-page">
+        <div className="print:break-after-page min-h-screen">
           <div className="mb-12">
-            <h2 className="text-2xl font-bold mb-6 border-r-4 border-indigo-600 pr-4">ملخص التحصيل العام</h2>
-            <div className="grid grid-cols-4 gap-6">
-              <div className="p-6 bg-slate-50 border-2 border-slate-200 rounded-xl">
-                <p className="text-sm text-slate-500 mb-2">إجمالي القيمة الصافية</p>
-                <p className="text-2xl font-black text-slate-900">{formatCurrency(stats.totalNetValue)}</p>
+            <h2 className="text-3xl font-bold mb-8 border-r-8 border-indigo-600 pr-6 py-2 bg-slate-50">ملخص التحصيل العام - التقرير الإداري</h2>
+            <div className="grid grid-cols-2 gap-8 mb-12">
+              <div className="p-8 bg-white border-2 border-slate-200 rounded-2xl shadow-sm">
+                <p className="text-lg text-slate-500 mb-2 font-bold">إجمالي القيمة الصافية</p>
+                <p className="text-4xl font-black text-slate-900">{formatCurrency(stats.totalNetValue)}</p>
               </div>
-              <div className="p-6 bg-emerald-50 border-2 border-emerald-200 rounded-xl">
-                <p className="text-sm text-emerald-600 mb-2">إجمالي المحصل الفعلي</p>
-                <p className="text-2xl font-black text-emerald-700">{formatCurrency(stats.totalCollected)}</p>
+              <div className="p-8 bg-white border-2 border-emerald-200 rounded-2xl shadow-sm">
+                <p className="text-lg text-emerald-600 mb-2 font-bold">إجمالي المحصل الفعلي</p>
+                <p className="text-4xl font-black text-emerald-700">{formatCurrency(stats.totalCollected)}</p>
               </div>
-              <div className="p-6 bg-rose-50 border-2 border-rose-200 rounded-xl">
-                <p className="text-sm text-rose-600 mb-2">إجمالي المتبقي</p>
-                <p className="text-2xl font-black text-rose-700">{formatCurrency(stats.totalRemaining)}</p>
+              <div className="p-8 bg-white border-2 border-rose-200 rounded-2xl shadow-sm">
+                <p className="text-lg text-rose-600 mb-2 font-bold">إجمالي المتبقي</p>
+                <p className="text-4xl font-black text-rose-700">{formatCurrency(stats.totalRemaining)}</p>
               </div>
-              <div className="p-6 bg-indigo-50 border-2 border-indigo-200 rounded-xl">
-                <p className="text-sm text-indigo-600 mb-2">نسبة التحصيل</p>
-                <p className="text-2xl font-black text-indigo-700">{stats.collectionRate.toFixed(1)}%</p>
+              <div className="p-8 bg-white border-2 border-indigo-200 rounded-2xl shadow-sm">
+                <p className="text-lg text-indigo-600 mb-2 font-bold">نسبة التحصيل</p>
+                <p className="text-4xl font-black text-indigo-700">{stats.collectionRate.toFixed(1)}%</p>
               </div>
             </div>
           </div>
 
-          <h2 className="text-2xl font-bold mb-6 border-r-4 border-indigo-600 pr-4">التحليل البياني والتدفقات</h2>
-          <div className="grid grid-cols-1 gap-8 mb-8">
-            <div className="bg-white p-6 rounded-2xl border border-slate-200 print:break-inside-avoid">
-              <h3 className="text-lg font-semibold mb-6 flex items-center gap-2">
-                <PieChartIcon size={20} className="text-indigo-600" />
+          <h2 className="text-2xl font-bold mb-8 border-r-4 border-indigo-600 pr-4">التحليل البياني والتدفقات</h2>
+          <div className="grid grid-cols-1 gap-12">
+            <div className="bg-white p-8 rounded-2xl border-2 border-slate-100 print:break-inside-avoid shadow-sm">
+              <h3 className="text-xl font-bold mb-8 flex items-center gap-3">
+                <PieChartIcon size={24} className="text-indigo-600" />
                 توزيع التحصيل حسب المشروع
               </h3>
-              <div className="h-[450px] w-full flex justify-center">
+              <div className="h-[500px] w-full flex justify-center items-center">
                 {stats.projectStats.length > 0 ? (
-                  <PieChart width={700} height={450}>
+                  <PieChart width={800} height={500}>
                     <Pie
                       data={stats.projectStats}
                       cx="50%"
                       cy="50%"
-                      innerRadius={80}
-                      outerRadius={140}
+                      innerRadius={100}
+                      outerRadius={180}
                       paddingAngle={5}
                       dataKey="collected"
                       nameKey="name"
@@ -714,26 +730,28 @@ function MainApp() {
                       ))}
                     </Pie>
                     <Tooltip formatter={(value: number) => formatCurrency(value)} />
-                    <Legend />
+                    <Legend iconSize={20} wrapperStyle={{ paddingTop: '20px' }} />
                   </PieChart>
                 ) : (
                   <div className="h-full flex items-center justify-center text-slate-400">لا توجد بيانات للمشاريع</div>
                 )}
               </div>
             </div>
-            <div className="bg-white p-6 rounded-2xl border border-slate-200 print:break-inside-avoid">
-              <h3 className="text-lg font-semibold mb-6 flex items-center gap-2">
-                <TrendingUp size={20} className="text-indigo-600" />
+            
+            <div className="bg-white p-8 rounded-2xl border-2 border-slate-100 print:break-inside-avoid shadow-sm">
+              <h3 className="text-xl font-bold mb-8 flex items-center gap-3">
+                <TrendingUp size={24} className="text-indigo-600" />
                 التدفق المالي الشهري
               </h3>
-              <div className="h-[400px] w-full flex justify-center">
+              <div className="h-[450px] w-full flex justify-center items-center">
                 {stats.monthlyStats.length > 0 ? (
-                  <AreaChart width={700} height={400} data={stats.monthlyStats} margin={{ top: 50, right: 30, left: 0, bottom: 0 }}>
+                  <AreaChart width={800} height={450} data={stats.monthlyStats} margin={{ top: 50, right: 30, left: 0, bottom: 0 }}>
                     <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f1f5f9" />
-                    <XAxis dataKey="month" tick={{ fontSize: 12, fontWeight: 600 }} />
-                    <YAxis tickFormatter={(v) => v >= 1000000 ? `${(v/1000000).toFixed(1)}M` : v >= 1000 ? `${(v/1000).toFixed(0)}K` : v} />
-                    <Area type="monotone" dataKey="collected" name="المحصل" stroke="#10b981" fill="#10b981" fillOpacity={0.1} />
-                    <Area type="monotone" dataKey="remaining" name="المتبقي" stroke="#f43f5e" fill="#f43f5e" fillOpacity={0.1} />
+                    <XAxis dataKey="month" tick={{ fontSize: 14, fontWeight: 700 }} />
+                    <YAxis tickFormatter={(v) => v >= 1000000 ? `${(v/1000000).toFixed(1)}M` : v >= 1000 ? `${(v/1000).toFixed(0)}K` : v} tick={{ fontSize: 12 }} />
+                    <Area type="monotone" dataKey="collected" name="المحصل" stroke="#10b981" fill="#10b981" fillOpacity={0.1} strokeWidth={3} />
+                    <Area type="monotone" dataKey="remaining" name="المتبقي" stroke="#f43f5e" fill="#f43f5e" fillOpacity={0.1} strokeWidth={3} />
+                    <Legend verticalAlign="top" height={36}/>
                   </AreaChart>
                 ) : (
                   <div className="h-full flex items-center justify-center text-slate-400">لا توجد بيانات شهرية</div>
@@ -743,11 +761,12 @@ function MainApp() {
           </div>
         </div>
 
-        {/* Table Section Title for Print */}
-        <h2 className="text-2xl font-bold mb-6 border-r-4 border-indigo-600 pr-4">تفاصيل البيانات والتحصيلات</h2>
-        
-        {/* Print Table */}
-        <div className="overflow-x-auto">
+        {/* Table Section (Starts on New Page) */}
+        <div className="print:mt-0">
+          <h2 className="text-3xl font-bold mb-8 border-r-8 border-indigo-600 pr-6 py-2 bg-slate-50">تفاصيل البيانات والتحصيلات</h2>
+          
+          {/* Print Table */}
+          <div className="overflow-x-auto">
           <table className="w-full text-right border-collapse border border-slate-200">
             <thead>
               <tr className="bg-slate-50 text-slate-900 border-b-2 border-slate-300 text-xs">
@@ -814,7 +833,8 @@ function MainApp() {
         </footer>
       </div>
     </div>
-  );
+  </div>
+);
 }
 
 function DashboardView({ 
