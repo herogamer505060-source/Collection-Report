@@ -117,6 +117,7 @@ function MainApp() {
   const [showAiError, setShowAiError] = useState(!isAIConfigured());
   const [searchTerm, setSearchTerm] = useState("");
   const [filterProject, setFilterProject] = useState("الكل");
+  const [filterStatus, setFilterStatus] = useState("الكل");
   const [startDate, setStartDate] = useState("");
   const [endDate, setEndDate] = useState("");
   const [activeTab, setActiveTab] = useState<"dashboard" | "reports">("dashboard");
@@ -470,6 +471,19 @@ function MainApp() {
                             item.unitCode.toLowerCase().includes(searchTerm.toLowerCase());
       const matchesProject = filterProject === "الكل" || item.project === filterProject;
       
+      let matchesStatus = true;
+      if (filterStatus !== "الكل") {
+        const isCommercialPaper = item.commercialPaper && item.commercialPaper.trim() !== "";
+        const isPaid = item.remaining <= 0;
+        const isPartial = item.collected > 0 && !isPaid;
+        const isOverdue = !isCommercialPaper && !isPaid && !isPartial;
+
+        if (filterStatus === "ورقة مالية") matchesStatus = isCommercialPaper;
+        else if (filterStatus === "مسدد") matchesStatus = isPaid;
+        else if (filterStatus === "جزئي") matchesStatus = isPartial;
+        else if (filterStatus === "متأخر") matchesStatus = isOverdue;
+      }
+
       let matchesDate = true;
       if (item.date && item.date !== "-" && item.date !== "0") {
         const itemDate = new Date(item.date);
@@ -488,14 +502,14 @@ function MainApp() {
         matchesDate = false;
       }
 
-      return matchesSearch && matchesProject && matchesDate;
+      return matchesSearch && matchesProject && matchesStatus && matchesDate;
     }).sort((a, b) => {
       // Sort from oldest to newest (ascending)
       const dateA = a.date && a.date !== "-" && a.date !== "0" ? new Date(a.date).getTime() : 0;
       const dateB = b.date && b.date !== "-" && b.date !== "0" ? new Date(b.date).getTime() : 0;
       return dateA - dateB;
     });
-  }, [data, searchTerm, filterProject, startDate, endDate]);
+  }, [data, searchTerm, filterProject, filterStatus, startDate, endDate]);
 
   const totals = useMemo(() => {
     return filteredData.reduce((acc, item) => ({
@@ -700,6 +714,8 @@ function MainApp() {
             setSearchTerm={setSearchTerm}
             filterProject={filterProject}
             setFilterProject={setFilterProject}
+            filterStatus={filterStatus}
+            setFilterStatus={setFilterStatus}
             startDate={startDate}
             setStartDate={setStartDate}
             endDate={endDate}
@@ -881,7 +897,8 @@ function MainApp() {
 
 function DashboardView({ 
   isLoading, user, stats, data, searchTerm, setSearchTerm, 
-  filterProject, setFilterProject, startDate, setStartDate,
+  filterProject, setFilterProject, filterStatus, setFilterStatus,
+  startDate, setStartDate,
   endDate, setEndDate, filteredData, totals, handleUpdateNote 
 }: any) {
   return (
@@ -973,7 +990,18 @@ function DashboardView({
               />
             </div>
             <select 
-              className="px-4 py-2 bg-slate-50 border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500/20"
+              className="px-4 py-2 bg-slate-50 border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500/20 text-sm"
+              value={filterStatus}
+              onChange={(e) => setFilterStatus(e.target.value)}
+            >
+              <option value="الكل">كل الحالات</option>
+              <option value="مسدد">مسدد</option>
+              <option value="جزئي">جزئي</option>
+              <option value="متأخر">متأخر</option>
+              <option value="ورقة مالية">ورقة مالية</option>
+            </select>
+            <select 
+              className="px-4 py-2 bg-slate-50 border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500/20 text-sm"
               value={filterProject}
               onChange={(e) => setFilterProject(e.target.value)}
             >
