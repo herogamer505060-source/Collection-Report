@@ -77,31 +77,136 @@ import {
 } from "./firebase";
 import { User } from "firebase/auth";
 
+type InstallmentStatus = "commercialPaper" | "paid" | "partial" | "overdue";
+
+interface ErrorBoundaryProps {
+  children: ReactNode;
+}
+
+interface ErrorBoundaryState {
+  hasError: boolean;
+  errorInfo: string | null;
+}
+
+type StateSetter<T> = React.Dispatch<React.SetStateAction<T>>;
+
+interface DashboardViewProps {
+  isLoading: boolean;
+  user: User | null;
+  isAdmin: boolean;
+  stats: DashboardStats;
+  data: InstallmentData[];
+  searchTerm: string;
+  setSearchTerm: StateSetter<string>;
+  filterProject: string;
+  setFilterProject: StateSetter<string>;
+  filterStatus: string;
+  setFilterStatus: StateSetter<string>;
+  startDate: string;
+  setStartDate: StateSetter<string>;
+  endDate: string;
+  setEndDate: StateSetter<string>;
+  filteredData: InstallmentData[];
+  totals: {
+    collected: number;
+    remaining: number;
+    netValue: number;
+  };
+  handleUpdateNote: (
+    customer: string,
+    installmentCode: string,
+    newNote: string,
+  ) => Promise<void>;
+  handleUpdatePhone: (
+    customer: string,
+    installmentCode: string,
+    newPhone: string,
+  ) => Promise<void>;
+  selectedRows: Set<string>;
+  setSelectedRows: StateSetter<Set<string>>;
+}
+
+interface ReportsViewProps {
+  stats: DashboardStats;
+  filteredData: InstallmentData[];
+  handlePrint: () => void;
+  handleExportExcel: () => void;
+  isAdmin: boolean;
+}
+
+const INSTALLMENT_STATUS_META: Record<
+  InstallmentStatus,
+  {
+    filterLabel: string;
+    badgeLabel: string;
+    exportLabel: string;
+    badgeClassName: string;
+  }
+> = {
+  commercialPaper: {
+    filterLabel: "ورقة مالية",
+    badgeLabel: "ورقة مالية",
+    exportLabel: "بانتظار التحصيل (ورقة)",
+    badgeClassName:
+      "bg-indigo-100 text-indigo-700 text-[10px] rounded-full font-black uppercase tracking-wider",
+  },
+  paid: {
+    filterLabel: "مسدد",
+    badgeLabel: "مسدد",
+    exportLabel: "مسدد بالكامل",
+    badgeClassName:
+      "bg-emerald-100 text-emerald-700 text-[10px] rounded-full font-black uppercase tracking-wider",
+  },
+  partial: {
+    filterLabel: "جزئي",
+    badgeLabel: "جزئي",
+    exportLabel: "مسدد جزئياً",
+    badgeClassName:
+      "bg-amber-100 text-amber-700 text-[10px] rounded-full font-black uppercase tracking-wider",
+  },
+  overdue: {
+    filterLabel: "متأخر",
+    badgeLabel: "متأخر",
+    exportLabel: "غير مسدد",
+    badgeClassName:
+      "bg-rose-100 text-rose-700 text-[10px] rounded-full font-black uppercase tracking-wider",
+  },
+};
+
 // Error Boundary Component
-class ErrorBoundary extends (React.Component as any) {
-  constructor(props: any) {
+class ErrorBoundary extends React.Component<
+  ErrorBoundaryProps,
+  ErrorBoundaryState
+> {
+  declare state: ErrorBoundaryState;
+  declare props: ErrorBoundaryProps;
+
+  constructor(props: ErrorBoundaryProps) {
     super(props);
     this.state = { hasError: false, errorInfo: null };
   }
 
-  static getDerivedStateFromError(error: any) {
-    return { hasError: true, errorInfo: error.message || String(error) };
+  static getDerivedStateFromError(error: unknown): ErrorBoundaryState {
+    return {
+      hasError: true,
+      errorInfo: error instanceof Error ? error.message : String(error),
+    };
   }
 
-  componentDidCatch(error: any, errorInfo: any) {
+  componentDidCatch(error: Error, errorInfo: ErrorInfo) {
     console.error("ErrorBoundary caught an error", error, errorInfo);
   }
 
   render() {
-    if ((this.state as any).hasError) {
+    if (this.state.hasError) {
       let displayError = "حدث خطأ غير متوقع.";
       try {
-        const parsed = JSON.parse((this.state as any).errorInfo || "{}");
+        const parsed = JSON.parse(this.state.errorInfo || "{}");
         if (parsed.error) {
           displayError = `خطأ في قاعدة البيانات: ${parsed.error}`;
         }
-      } catch (e) {
-        displayError = (this.state as any).errorInfo || displayError;
+      } catch {
+        displayError = this.state.errorInfo || displayError;
       }
 
       return (
@@ -126,7 +231,7 @@ class ErrorBoundary extends (React.Component as any) {
       );
     }
 
-    return (this.props as any).children;
+    return this.props.children;
   }
 }
 
@@ -216,6 +321,68 @@ const formatDate = (dateStr: string) => {
   }
 };
 
+const getInstallmentStatus = (
+  item: Pick<InstallmentData, "commercialPaper" | "remaining" | "collected">,
+): InstallmentStatus => {
+  const hasCommercialPaper = !!(
+    item.commercialPaper && item.commercialPaper.trim() !== ""
+  );
+
+  if (hasCommercialPaper) return "commercialPaper";
+  if (item.remaining <= 0) return "paid";
+  if (item.collected > 0) return "partial";
+  return "overdue";
+};
+
+const getCollectionRate = (collected: number, total: number) => {
+  if (total <= 0) return 0;
+  return (collected / total) * 100;
+};
+
+const buildInstallmentKey = (
+  item: Pick<InstallmentData, "customer" | "installmentCode">,
+) => `${item.customer}_${item.installmentCode}`;
+
+const createFallbackInstallmentCode = (
+  row: Record<string, unknown>,
+  formattedDate: string,
+  value: number,
+  netValue: number,
+  collected: number,
+  remaining: number,
+) => {
+  const stableParts = [
+    row["العميل"] ??
+      row["Customer"] ??
+      row["اسم العميل"] ??
+      row["الاسم"] ??
+      row["اسم"] ??
+      "",
+    row["المشروع"] ?? row["Project"] ?? row["اسم المشروع"] ?? row["مشروع"] ?? "",
+    row["الوحدة"] ??
+      row["Unit"] ??
+      row["رقم الوحدة"] ??
+      row["كود الوحدة"] ??
+      row["وحدة"] ??
+      "",
+    formattedDate,
+    value,
+    netValue,
+    collected,
+    remaining,
+  ];
+
+  return (
+    stableParts
+      .map((part) => String(part).trim())
+      .join("_")
+      .replace(/\s+/g, "_")
+      .replace(/[^\w\u0600-\u06FF-]/g, "")
+      .replace(/_+/g, "_")
+      .replace(/^_+|_+$/g, "") || "installment"
+  );
+};
+
 export default function App() {
   return (
     <ErrorBoundary>
@@ -240,6 +407,7 @@ function MainApp() {
     "dashboard",
   );
   const [selectedRows, setSelectedRows] = useState<Set<string>>(new Set());
+  const [reportNumber] = useState(() => `${Date.now()}`.slice(-5));
 
   const isAdmin = useMemo(() => user?.email === ADMIN_EMAIL, [user]);
 
@@ -258,12 +426,14 @@ function MainApp() {
 
   // Firestore Sync
   useEffect(() => {
+    if (!isAuthReady) return;
+
     setIsLoading(true);
 
     let q;
     if (user) {
       // If admin, fetch public data. Otherwise fetch user's own data.
-      if (user.email === ADMIN_EMAIL) {
+      if (isAdmin) {
         q = query(collection(db, "installments"), where("uid", "==", "public"));
       } else {
         q = query(collection(db, "installments"), where("uid", "==", user.uid));
@@ -291,13 +461,13 @@ function MainApp() {
         setIsLoading(false);
       },
       (error) => {
-        handleFirestoreError(error, OperationType.GET, "installments");
         setIsLoading(false);
+        handleFirestoreError(error, OperationType.GET, "installments");
       },
     );
 
     return () => unsubscribe();
-  }, [isAuthReady, user]);
+  }, [isAuthReady, isAdmin, user]);
 
   const handleLogin = async () => {
     try {
@@ -342,11 +512,15 @@ function MainApp() {
     }
   };
 
-  const handleUpdateNote = async (
+  const handleUpdateNote = useCallback(async (
     customer: string,
     installmentCode: string,
     newNote: string,
   ) => {
+    const item = data.find(
+      (i) => i.customer === customer && i.installmentCode === installmentCode,
+    );
+
     // Optimistic update
     setData((prev) =>
       prev.map((item) =>
@@ -357,9 +531,6 @@ function MainApp() {
     );
 
     if (user) {
-      const item = data.find(
-        (i) => i.customer === customer && i.installmentCode === installmentCode,
-      );
       if (item && item.id) {
         try {
           await setDoc(
@@ -376,13 +547,17 @@ function MainApp() {
         }
       }
     }
-  };
+  }, [data, user]);
 
-  const handleUpdatePhone = async (
+  const handleUpdatePhone = useCallback(async (
     customer: string,
     installmentCode: string,
     newPhone: string,
   ) => {
+    const item = data.find(
+      (i) => i.customer === customer && i.installmentCode === installmentCode,
+    );
+
     setData((prev) =>
       prev.map((item) =>
         item.customer === customer && item.installmentCode === installmentCode
@@ -392,9 +567,6 @@ function MainApp() {
     );
 
     if (user) {
-      const item = data.find(
-        (i) => i.customer === customer && i.installmentCode === installmentCode,
-      );
       if (item && item.id) {
         try {
           await setDoc(
@@ -411,7 +583,7 @@ function MainApp() {
         }
       }
     }
-  };
+  }, [data, user]);
 
   const onDrop = useCallback(
     async (acceptedFiles: File[]) => {
@@ -443,17 +615,18 @@ function MainApp() {
                 const jsonData = XLSX.utils.sheet_to_json(worksheet);
 
                 const mappedData: InstallmentData[] = jsonData.map(
-                  (row: any) => {
-                    const normalizedRow: any = {};
-                    Object.keys(row).forEach((key) => {
-                      normalizedRow[key.trim().toLowerCase()] = row[key];
+                  (row) => {
+                    const typedRow = row as Record<string, unknown>;
+                    const normalizedRow: Record<string, unknown> = {};
+                    Object.keys(typedRow).forEach((key) => {
+                      normalizedRow[key.trim().toLowerCase()] = typedRow[key];
                     });
 
                     const getVal = (keys: string[]) => {
                       const originalKey = keys.find(
-                        (k) => row[k] !== undefined,
+                        (k) => typedRow[k] !== undefined,
                       );
-                      if (originalKey) return row[originalKey];
+                      if (originalKey) return typedRow[originalKey];
 
                       const normalizedKey = keys.find(
                         (k) =>
@@ -513,8 +686,17 @@ function MainApp() {
                       formattedDate = String(rawDate || "");
                     }
 
+                    const fallbackInstallmentCode = createFallbackInstallmentCode(
+                      typedRow,
+                      formattedDate,
+                      value,
+                      netValue,
+                      collected,
+                      remaining,
+                    );
+
                     return {
-                      customer:
+                      customer: String(
                         getVal([
                           "العميل",
                           "Customer",
@@ -522,14 +704,16 @@ function MainApp() {
                           "الاسم",
                           "اسم",
                         ]) || "",
-                      project:
+                      ),
+                      project: String(
                         getVal([
                           "المشروع",
                           "Project",
                           "اسم المشروع",
                           "مشروع",
                         ]) || "",
-                      unitCode:
+                      ),
+                      unitCode: String(
                         getVal([
                           "الوحدة",
                           "Unit",
@@ -537,15 +721,17 @@ function MainApp() {
                           "كود الوحدة",
                           "وحدة",
                         ]) || "",
-                      type:
+                      ),
+                      type: String(
                         getVal(["النوع", "Type", "نوع القسط", "نوع"]) || "قسط",
+                      ),
                       installmentCode: String(
                         getVal([
                           "كود القسط",
                           "Installment Code",
                           "رقم القسط",
                           "كود",
-                        ]) || Math.random().toString(36).substring(2, 11),
+                        ]) || fallbackInstallmentCode,
                       ),
                       date: formattedDate,
                       value,
@@ -561,8 +747,9 @@ function MainApp() {
                           "رقم الشيك",
                         ]) || "",
                       ),
-                      notes:
+                      notes: String(
                         getVal(["ملاحظات", "Notes", "البيان", "ملاحظة"]) || "",
+                      ),
                     };
                   },
                 );
@@ -750,16 +937,9 @@ function MainApp() {
 
         let matchesStatus = true;
         if (filterStatus !== "الكل") {
-          const isCommercialPaper =
-            item.commercialPaper && item.commercialPaper.trim() !== "";
-          const isPaid = item.remaining <= 0;
-          const isPartial = item.collected > 0 && !isPaid;
-          const isOverdue = !isCommercialPaper && !isPaid && !isPartial;
-
-          if (filterStatus === "ورقة مالية") matchesStatus = isCommercialPaper;
-          else if (filterStatus === "مسدد") matchesStatus = isPaid;
-          else if (filterStatus === "جزئي") matchesStatus = isPartial;
-          else if (filterStatus === "متأخر") matchesStatus = isOverdue;
+          const itemStatus = getInstallmentStatus(item);
+          matchesStatus =
+            INSTALLMENT_STATUS_META[itemStatus].filterLabel === filterStatus;
         }
 
         let matchesDate = true;
@@ -821,6 +1001,7 @@ function MainApp() {
       return;
     }
     const exportData = filteredData.map((item) => ({
+      الحالة: INSTALLMENT_STATUS_META[getInstallmentStatus(item)].exportLabel,
       العميل: item.customer,
       المشروع: item.project,
       الوحدة: item.unitCode,
@@ -829,14 +1010,6 @@ function MainApp() {
       المحصل: item.collected,
       المتبقي: item.remaining,
       "الورقة التجارية": item.commercialPaper || "-",
-      الحالة:
-        item.commercialPaper && item.commercialPaper.trim() !== ""
-          ? "بانتظار التحصيل (ورقة)"
-          : item.remaining <= 0
-            ? "مسدد بالكامل"
-            : item.collected > 0
-              ? "مسدد جزئياً"
-              : "غير مسدد",
       ملاحظات: item.notes || "-",
     }));
 
@@ -867,13 +1040,7 @@ function MainApp() {
       item.collected,
       item.remaining,
       item.commercialPaper || "-",
-      item.commercialPaper && item.commercialPaper.trim() !== ""
-        ? "بانتظار التحصيل (ورقة)"
-        : item.remaining <= 0
-          ? "مسدد بالكامل"
-          : item.collected > 0
-            ? "مسدد جزئياً"
-            : "غير مسدد",
+      INSTALLMENT_STATUS_META[getInstallmentStatus(item)].exportLabel,
       item.notes || "-",
     ]);
 
@@ -914,7 +1081,7 @@ function MainApp() {
         </h1>
         <div className="flex justify-center gap-12 text-lg text-slate-600 font-bold">
           <p>تاريخ التقرير: {new Date().toLocaleDateString("ar-EG")}</p>
-          <p>رقم التقرير: {Math.floor(Math.random() * 100000)}</p>
+          <p>رقم التقرير: {reportNumber}</p>
         </div>
       </header>
 
@@ -1368,7 +1535,7 @@ function MainApp() {
             <div className="flex justify-between items-center text-xs text-slate-500 border-t border-slate-200 pt-6">
               <p>تاريخ الاستخراج: {new Date().toLocaleString("ar-EG")}</p>
               <p>نظام تحصيل الأقساط العقارية الذكي - تقرير إداري معتمد</p>
-              <p>صفحة 1 من 1</p>
+              <p>يتم تحديد عدد الصفحات عند الطباعة</p>
             </div>
           </footer>
         </div>
@@ -1399,7 +1566,7 @@ function DashboardView({
   handleUpdatePhone,
   selectedRows,
   setSelectedRows,
-}: any) {
+}: DashboardViewProps) {
   const buildWhatsAppMessage = (item: InstallmentData) =>
     `السلام عليكم ورحمة الله وبركاته\nعزيزنا ${item.customer}،\nنود تذكيركم بموعد سداد قسطكم:\n🏢 المشروع: ${item.project}\n🏠 الوحدة: ${item.unitCode}\n📅 تاريخ القسط: ${formatDate(item.date)}\n💰 صافي القيمة: ${formatCurrency(item.netValue)}\n✅ المحصل: ${formatCurrency(item.collected)}\n💳 المتبقي: ${formatCurrency(item.remaining)}\n\nشركة الحصري للتطوير العقاري`;
 
@@ -1419,7 +1586,7 @@ function DashboardView({
   };
 
   const allKeys = filteredData.map(
-    (item: InstallmentData) => `${item.customer}_${item.installmentCode}`,
+    (item: InstallmentData) => buildInstallmentKey(item),
   );
   const allSelected =
     allKeys.length > 0 && allKeys.every((k: string) => selectedRows.has(k));
@@ -1697,11 +1864,11 @@ function DashboardView({
               onChange={(e) => setFilterProject(e.target.value)}
             >
               <option value="الكل">كل المشاريع</option>
-              {Array.from(new Set(data.map((item: any) => item.project))).map(
-                (p: any) => (
-                  <option key={p} value={p}>
-                    {p}
-                  </option>
+                {Array.from(new Set(data.map((item) => item.project))).map(
+                  (p) => (
+                    <option key={p} value={p}>
+                      {p}
+                    </option>
                 ),
               )}
             </select>
@@ -1748,15 +1915,17 @@ function DashboardView({
             </thead>
             <tbody className="divide-y divide-slate-100">
               <AnimatePresence>
-                {filteredData.map((item: any, idx: number) => {
-                  const rowKey = `${item.customer}_${item.installmentCode}`;
+                {filteredData.map((item) => {
+                  const rowKey = buildInstallmentKey(item);
                   const isSelected = selectedRows.has(rowKey);
+                  const statusMeta =
+                    INSTALLMENT_STATUS_META[getInstallmentStatus(item)];
                   return (
                     <motion.tr
-                      key={`${item.customer}-${item.installmentCode}-${idx}`}
+                      key={rowKey}
                       initial={{ opacity: 0, y: 10 }}
                       animate={{ opacity: 1, y: 0 }}
-                      transition={{ delay: idx * 0.05 }}
+                      transition={{ duration: 0.2 }}
                       className={cn(
                         "transition-colors group",
                         isSelected ? "bg-green-50" : "hover:bg-slate-50",
@@ -1797,24 +1966,14 @@ function DashboardView({
                         {item.commercialPaper || "-"}
                       </td>
                       <td className="px-6 py-4 text-center">
-                        {item.commercialPaper &&
-                        item.commercialPaper.trim() !== "" ? (
-                          <span className="inline-flex px-2.5 py-1 bg-indigo-100 text-indigo-700 text-[10px] rounded-full font-black uppercase tracking-wider">
-                            ورقة مالية
-                          </span>
-                        ) : item.remaining <= 0 ? (
-                          <span className="inline-flex px-2.5 py-1 bg-emerald-100 text-emerald-700 text-[10px] rounded-full font-black uppercase tracking-wider">
-                            مسدد
-                          </span>
-                        ) : item.collected > 0 ? (
-                          <span className="inline-flex px-2.5 py-1 bg-amber-100 text-amber-700 text-[10px] rounded-full font-black uppercase tracking-wider">
-                            جزئي
-                          </span>
-                        ) : (
-                          <span className="inline-flex px-2.5 py-1 bg-rose-100 text-rose-700 text-[10px] rounded-full font-black uppercase tracking-wider">
-                            متأخر
-                          </span>
-                        )}
+                        <span
+                          className={cn(
+                            "inline-flex px-2.5 py-1",
+                            statusMeta.badgeClassName,
+                          )}
+                        >
+                          {statusMeta.badgeLabel}
+                        </span>
                       </td>
                       <td className="px-6 py-4 text-sm">
                         <div className="flex items-center gap-2">
@@ -1931,7 +2090,7 @@ function ReportsView({
   handlePrint,
   handleExportExcel,
   isAdmin,
-}: any) {
+}: ReportsViewProps) {
   return (
     <div className="space-y-8">
       {/* Reports Header */}
@@ -2116,34 +2275,45 @@ function ReportsView({
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-50">
-              {stats.projectStats.map((p: any) => (
-                <tr
-                  key={p.name}
-                  className="hover:bg-slate-50/50 transition-colors"
-                >
-                  <td className="py-4 font-black text-slate-800">{p.name}</td>
-                  <td className="py-4 font-bold">{formatCurrency(p.total)}</td>
-                  <td className="py-4 text-emerald-600 font-bold">
-                    {formatCurrency(p.collected)}
-                  </td>
-                  <td className="py-4 text-rose-600 font-bold">
-                    {formatCurrency(p.remaining)}
-                  </td>
-                  <td className="py-4">
-                    <div className="flex items-center gap-3 justify-center">
-                      <div className="w-32 h-2 bg-slate-100 rounded-full overflow-hidden">
-                        <div
-                          className="h-full bg-indigo-600 rounded-full shadow-[0_0_8px_rgba(99,102,241,0.4)]"
-                          style={{ width: `${(p.collected / p.total) * 100}%` }}
-                        />
+              {stats.projectStats.map((projectStat) => {
+                const completionRate = getCollectionRate(
+                  projectStat.collected,
+                  projectStat.total,
+                );
+
+                return (
+                  <tr
+                    key={projectStat.name}
+                    className="hover:bg-slate-50/50 transition-colors"
+                  >
+                    <td className="py-4 font-black text-slate-800">
+                      {projectStat.name}
+                    </td>
+                    <td className="py-4 font-bold">
+                      {formatCurrency(projectStat.total)}
+                    </td>
+                    <td className="py-4 text-emerald-600 font-bold">
+                      {formatCurrency(projectStat.collected)}
+                    </td>
+                    <td className="py-4 text-rose-600 font-bold">
+                      {formatCurrency(projectStat.remaining)}
+                    </td>
+                    <td className="py-4">
+                      <div className="flex items-center gap-3 justify-center">
+                        <div className="w-32 h-2 bg-slate-100 rounded-full overflow-hidden">
+                          <div
+                            className="h-full bg-indigo-600 rounded-full shadow-[0_0_8px_rgba(99,102,241,0.4)]"
+                            style={{ width: `${completionRate}%` }}
+                          />
+                        </div>
+                        <span className="text-xs font-black text-slate-700">
+                          {completionRate.toFixed(1)}%
+                        </span>
                       </div>
-                      <span className="text-xs font-black text-slate-700">
-                        {((p.collected / p.total) * 100).toFixed(1)}%
-                      </span>
-                    </div>
-                  </td>
-                </tr>
-              ))}
+                    </td>
+                  </tr>
+                );
+              })}
             </tbody>
           </table>
         </div>
