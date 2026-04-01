@@ -12,7 +12,6 @@ export interface InstallmentData {
   remaining: number;
   commercialPaper: string;
   notes: string;
-  phone?: string;
   uid?: string; // Owner UID
   createdAt?: string; // ISO 8601 creation timestamp
 }
@@ -22,11 +21,6 @@ export interface DashboardStats {
   totalCollected: number;
   totalRemaining: number;
   collectionRate: number;
-  projectStats: {
-    name: string;
-    collected: number;
-    remaining: number;
-    total: number;
-  }[];
+  projectStats: { name: string; collected: number; remaining: number; total: number }[];
   monthlyStats: { month: string; collected: number; remaining: number }[];
 }
