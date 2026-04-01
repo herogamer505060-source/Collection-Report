@@ -48,6 +48,7 @@ import {
   LogIn,
   LogOut,
   User as UserIcon,
+  MessageCircle,
 } from "lucide-react";
 import * as XLSX from "xlsx";
 import ExcelJS from "exceljs";
@@ -236,6 +237,7 @@ function MainApp() {
   const [activeTab, setActiveTab] = useState<"dashboard" | "reports">(
     "dashboard",
   );
+  const [selectedRows, setSelectedRows] = useState<Set<string>>(new Set());
 
   const isAdmin = useMemo(() => user?.email === ADMIN_EMAIL, [user]);
 
@@ -322,6 +324,41 @@ function MainApp() {
           await setDoc(
             doc(db, "installments", item.id),
             { ...item, notes: newNote },
+            { merge: true },
+          );
+        } catch (error) {
+          handleFirestoreError(
+            error,
+            OperationType.UPDATE,
+            `installments/${item.id}`,
+          );
+        }
+      }
+    }
+  };
+
+  const handleUpdatePhone = async (
+    customer: string,
+    installmentCode: string,
+    newPhone: string,
+  ) => {
+    setData((prev) =>
+      prev.map((item) =>
+        item.customer === customer && item.installmentCode === installmentCode
+          ? { ...item, phone: newPhone }
+          : item,
+      ),
+    );
+
+    if (user) {
+      const item = data.find(
+        (i) => i.customer === customer && i.installmentCode === installmentCode,
+      );
+      if (item && item.id) {
+        try {
+          await setDoc(
+            doc(db, "installments", item.id),
+            { phone: newPhone },
             { merge: true },
           );
         } catch (error) {
@@ -1124,6 +1161,7 @@ function MainApp() {
           <DashboardView
             isLoading={isLoading}
             user={user}
+            isAdmin={isAdmin}
             stats={stats}
             data={data}
             searchTerm={searchTerm}
@@ -1137,6 +1175,9 @@ function MainApp() {
             filteredData={filteredData}
             totals={totals}
             handleUpdateNote={handleUpdateNote}
+            handleUpdatePhone={handleUpdatePhone}
+            selectedRows={selectedRows}
+            setSelectedRows={setSelectedRows}
           />
         ) : (
           <ReportsView
@@ -1492,6 +1533,7 @@ function MainApp() {
 function DashboardView({
   isLoading,
   user,
+  isAdmin,
   stats,
   data,
   searchTerm,
@@ -1505,7 +1547,68 @@ function DashboardView({
   filteredData,
   totals,
   handleUpdateNote,
+  handleUpdatePhone,
+  selectedRows,
+  setSelectedRows,
 }: any) {
+  const buildWhatsAppMessage = (item: InstallmentData) =>
+    `السلام عليكم ورحمة الله وبركاته\nعزيزنا ${item.customer}،\nنود تذكيركم بموعد سداد قسطكم:\n🏢 المشروع: ${item.project}\n🏠 الوحدة: ${item.unitCode}\n📅 تاريخ القسط: ${formatDate(item.date)}\n💰 صافي القيمة: ${formatCurrency(item.netValue)}\n✅ المحصل: ${formatCurrency(item.collected)}\n💳 المتبقي: ${formatCurrency(item.remaining)}\n\nشركة الحصري للتطوير العقاري`;
+
+  const openWhatsApp = (item: InstallmentData) => {
+    const phone = item.phone?.replace(/\D/g, "");
+    if (!phone) return;
+    const text = encodeURIComponent(buildWhatsAppMessage(item));
+    window.open(`https://wa.me/${phone}?text=${text}`, "_blank");
+  };
+
+  const toggleRow = (key: string) => {
+    setSelectedRows((prev: Set<string>) => {
+      const next = new Set(prev);
+      next.has(key) ? next.delete(key) : next.add(key);
+      return next;
+    });
+  };
+
+  const allKeys = filteredData.map(
+    (item: InstallmentData) => `${item.customer}_${item.installmentCode}`,
+  );
+  const allSelected =
+    allKeys.length > 0 && allKeys.every((k: string) => selectedRows.has(k));
+
+  const toggleAll = () => {
+    if (allSelected) {
+      setSelectedRows((prev: Set<string>) => {
+        const next = new Set(prev);
+        allKeys.forEach((k: string) => next.delete(k));
+        return next;
+      });
+    } else {
+      setSelectedRows((prev: Set<string>) => {
+        const next = new Set(prev);
+        allKeys.forEach((k: string) => next.add(k));
+        return next;
+      });
+    }
+  };
+
+  const sendBulkWhatsApp = () => {
+    const selected = filteredData.filter((item: InstallmentData) =>
+      selectedRows.has(`${item.customer}_${item.installmentCode}`),
+    );
+    const withPhone = selected.filter((item: InstallmentData) =>
+      item.phone?.trim(),
+    );
+    const withoutPhone = selected.length - withPhone.length;
+    if (withPhone.length === 0) {
+      alert("لا يوجد أرقام واتساب مسجلة للعملاء المحددين.");
+      return;
+    }
+    if (withoutPhone > 0) {
+      alert(`تنبيه: ${withoutPhone} عميل بدون رقم واتساب وسيتم تخطيهم.`);
+    }
+    withPhone.forEach((item: InstallmentData) => openWhatsApp(item));
+  };
+
   return (
     <>
       {/* KPI Cards */}
@@ -1548,6 +1651,126 @@ function DashboardView({
           />
         </div>
       )}
+
+      {/* Charts Section */}
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-8">
+        <div className="bg-white p-6 rounded-2xl shadow-sm border border-slate-100">
+          <h3 className="text-lg font-semibold mb-4 flex items-center gap-2">
+            <PieChartIcon size={20} className="text-indigo-600" />
+            توزيع التحصيل حسب المشروع
+          </h3>
+          <div className="h-[300px]">
+            {stats.projectStats.length > 0 ? (
+              <ResponsiveContainer
+                width="100%"
+                height="100%"
+                minWidth={0}
+                debounce={100}
+              >
+                <PieChart>
+                  <Pie
+                    data={stats.projectStats}
+                    cx="50%"
+                    cy="50%"
+                    innerRadius={60}
+                    outerRadius={100}
+                    paddingAngle={5}
+                    dataKey="collected"
+                    nameKey="name"
+                    label={({ name, percent }) =>
+                      `${name} (${(percent * 100).toFixed(0)}%)`
+                    }
+                  >
+                    {stats.projectStats.map((entry: any, index: number) => (
+                      <Cell
+                        key={`cell-${index}`}
+                        fill={
+                          [
+                            "#6366f1",
+                            "#10b981",
+                            "#f43f5e",
+                            "#f59e0b",
+                            "#8b5cf6",
+                          ][index % 5]
+                        }
+                      />
+                    ))}
+                  </Pie>
+                  <Tooltip
+                    formatter={(value: number) => formatCurrency(value)}
+                  />
+                  <Legend />
+                </PieChart>
+              </ResponsiveContainer>
+            ) : (
+              <div className="h-full flex items-center justify-center text-slate-400">
+                لا توجد بيانات للمشاريع
+              </div>
+            )}
+          </div>
+        </div>
+        <div className="bg-white p-6 rounded-2xl shadow-sm border border-slate-100">
+          <h3 className="text-lg font-semibold mb-4 flex items-center gap-2">
+            <TrendingUp size={20} className="text-indigo-600" />
+            التدفق المالي الشهري
+          </h3>
+          <div className="h-[300px]">
+            {stats.monthlyStats.length > 0 ? (
+              <ResponsiveContainer
+                width="100%"
+                height="100%"
+                minWidth={0}
+                debounce={100}
+              >
+                <AreaChart
+                  data={stats.monthlyStats}
+                  margin={{ top: 10, right: 10, left: 0, bottom: 0 }}
+                >
+                  <CartesianGrid
+                    strokeDasharray="3 3"
+                    vertical={false}
+                    stroke="#f1f5f9"
+                  />
+                  <XAxis dataKey="month" tick={{ fontSize: 10 }} />
+                  <YAxis
+                    tickFormatter={(v) =>
+                      v >= 1000000
+                        ? `${(v / 1000000).toFixed(1)}M`
+                        : v >= 1000
+                          ? `${(v / 1000).toFixed(0)}K`
+                          : v
+                    }
+                    tick={{ fontSize: 10 }}
+                  />
+                  <Tooltip
+                    formatter={(value: number) => formatCurrency(value)}
+                  />
+                  <Area
+                    type="monotone"
+                    dataKey="collected"
+                    name="المحصل"
+                    stroke="#10b981"
+                    fill="#10b981"
+                    fillOpacity={0.1}
+                  />
+                  <Area
+                    type="monotone"
+                    dataKey="remaining"
+                    name="المتبقي"
+                    stroke="#f43f5e"
+                    fill="#f43f5e"
+                    fillOpacity={0.1}
+                  />
+                </AreaChart>
+              </ResponsiveContainer>
+            ) : (
+              <div className="h-full flex items-center justify-center text-slate-400">
+                لا توجد بيانات شهرية
+              </div>
+            )}
+          </div>
+        </div>
+      </div>
 
       {/* Data Table */}
       <div className="bg-white rounded-2xl shadow-sm border border-slate-100 overflow-hidden">
@@ -1629,6 +1852,17 @@ function DashboardView({
           <table className="w-full text-right border-collapse">
             <thead>
               <tr className="bg-slate-50 text-slate-500 text-xs uppercase tracking-wider border-b border-slate-200">
+                {isAdmin && (
+                  <th className="px-4 py-4 text-center w-10">
+                    <input
+                      type="checkbox"
+                      checked={allSelected}
+                      onChange={toggleAll}
+                      className="w-4 h-4 rounded accent-indigo-600 cursor-pointer"
+                      title="تحديد الكل"
+                    />
+                  </th>
+                )}
                 <th className="px-6 py-4 font-bold text-right min-w-[150px]">
                   العميل
                 </th>
@@ -1644,6 +1878,9 @@ function DashboardView({
                   الورقة التجارية
                 </th>
                 <th className="px-6 py-4 font-bold text-center">الحالة</th>
+                <th className="px-6 py-4 font-bold text-right min-w-[130px]">
+                  رقم الواتساب
+                </th>
                 <th className="px-6 py-4 font-bold text-right min-w-[250px]">
                   ملاحظات
                 </th>
@@ -1651,80 +1888,139 @@ function DashboardView({
             </thead>
             <tbody className="divide-y divide-slate-100">
               <AnimatePresence>
-                {filteredData.map((item: any, idx: number) => (
-                  <motion.tr
-                    key={`${item.customer}-${item.installmentCode}-${idx}`}
-                    initial={{ opacity: 0, y: 10 }}
-                    animate={{ opacity: 1, y: 0 }}
-                    transition={{ delay: idx * 0.05 }}
-                    className="hover:bg-slate-50 transition-colors group"
-                  >
-                    <td className="px-6 py-4 font-bold text-slate-900 whitespace-normal break-words leading-relaxed min-w-[150px]">
-                      {item.customer}
-                    </td>
-                    <td className="px-6 py-4 text-slate-600 text-sm">
-                      {item.project}
-                    </td>
-                    <td className="px-6 py-4 text-slate-600 text-sm font-mono max-w-[100px] whitespace-normal break-words leading-relaxed">
-                      {item.unitCode}
-                    </td>
-                    <td className="px-6 py-4 text-slate-500 text-sm">
-                      {formatDate(item.date)}
-                    </td>
-                    <td className="px-6 py-4 text-slate-900 font-black">
-                      {formatCurrency(item.netValue)}
-                    </td>
-                    <td className="px-6 py-4 text-emerald-600 font-black text-center">
-                      {formatCurrency(item.collected)}
-                    </td>
-                    <td className="px-6 py-4 text-rose-600 font-black text-center">
-                      {formatCurrency(item.remaining)}
-                    </td>
-                    <td className="px-6 py-4 text-indigo-600 font-mono text-xs tracking-tighter">
-                      {item.commercialPaper || "-"}
-                    </td>
-                    <td className="px-6 py-4 text-center">
-                      {item.commercialPaper &&
-                      item.commercialPaper.trim() !== "" ? (
-                        <span className="inline-flex px-2.5 py-1 bg-indigo-100 text-indigo-700 text-[10px] rounded-full font-black uppercase tracking-wider">
-                          ورقة مالية
-                        </span>
-                      ) : item.remaining <= 0 ? (
-                        <span className="inline-flex px-2.5 py-1 bg-emerald-100 text-emerald-700 text-[10px] rounded-full font-black uppercase tracking-wider">
-                          مسدد
-                        </span>
-                      ) : item.collected > 0 ? (
-                        <span className="inline-flex px-2.5 py-1 bg-amber-100 text-amber-700 text-[10px] rounded-full font-black uppercase tracking-wider">
-                          جزئي
-                        </span>
-                      ) : (
-                        <span className="inline-flex px-2.5 py-1 bg-rose-100 text-rose-700 text-[10px] rounded-full font-black uppercase tracking-wider">
-                          متأخر
-                        </span>
+                {filteredData.map((item: any, idx: number) => {
+                  const rowKey = `${item.customer}_${item.installmentCode}`;
+                  const isSelected = selectedRows.has(rowKey);
+                  return (
+                    <motion.tr
+                      key={`${item.customer}-${item.installmentCode}-${idx}`}
+                      initial={{ opacity: 0, y: 10 }}
+                      animate={{ opacity: 1, y: 0 }}
+                      transition={{ delay: idx * 0.05 }}
+                      className={cn(
+                        "transition-colors group",
+                        isSelected ? "bg-green-50" : "hover:bg-slate-50",
                       )}
-                    </td>
-                    <td className="px-6 py-4 text-slate-500 text-sm">
-                      <input
-                        type="text"
-                        value={item.notes || ""}
-                        onChange={(e) =>
-                          handleUpdateNote(
-                            item.customer,
-                            item.installmentCode,
-                            e.target.value,
-                          )
-                        }
-                        className="w-full bg-transparent border-b border-transparent group-hover:border-slate-200 focus:border-indigo-500 focus:outline-none transition-all py-1 text-xs italic"
-                        placeholder="أضف ملاحظة..."
-                      />
-                    </td>
-                  </motion.tr>
-                ))}
+                    >
+                      {isAdmin && (
+                        <td className="px-4 py-4 text-center">
+                          <input
+                            type="checkbox"
+                            checked={isSelected}
+                            onChange={() => toggleRow(rowKey)}
+                            className="w-4 h-4 rounded accent-indigo-600 cursor-pointer"
+                          />
+                        </td>
+                      )}
+                      <td className="px-6 py-4 font-bold text-slate-900 whitespace-normal break-words leading-relaxed min-w-[150px]">
+                        {item.customer}
+                      </td>
+                      <td className="px-6 py-4 text-slate-600 text-sm">
+                        {item.project}
+                      </td>
+                      <td className="px-6 py-4 text-slate-600 text-sm font-mono max-w-[100px] whitespace-normal break-words leading-relaxed">
+                        {item.unitCode}
+                      </td>
+                      <td className="px-6 py-4 text-slate-500 text-sm">
+                        {formatDate(item.date)}
+                      </td>
+                      <td className="px-6 py-4 text-slate-900 font-black">
+                        {formatCurrency(item.netValue)}
+                      </td>
+                      <td className="px-6 py-4 text-emerald-600 font-black text-center">
+                        {formatCurrency(item.collected)}
+                      </td>
+                      <td className="px-6 py-4 text-rose-600 font-black text-center">
+                        {formatCurrency(item.remaining)}
+                      </td>
+                      <td className="px-6 py-4 text-indigo-600 font-mono text-xs tracking-tighter">
+                        {item.commercialPaper || "-"}
+                      </td>
+                      <td className="px-6 py-4 text-center">
+                        {item.commercialPaper &&
+                        item.commercialPaper.trim() !== "" ? (
+                          <span className="inline-flex px-2.5 py-1 bg-indigo-100 text-indigo-700 text-[10px] rounded-full font-black uppercase tracking-wider">
+                            ورقة مالية
+                          </span>
+                        ) : item.remaining <= 0 ? (
+                          <span className="inline-flex px-2.5 py-1 bg-emerald-100 text-emerald-700 text-[10px] rounded-full font-black uppercase tracking-wider">
+                            مسدد
+                          </span>
+                        ) : item.collected > 0 ? (
+                          <span className="inline-flex px-2.5 py-1 bg-amber-100 text-amber-700 text-[10px] rounded-full font-black uppercase tracking-wider">
+                            جزئي
+                          </span>
+                        ) : (
+                          <span className="inline-flex px-2.5 py-1 bg-rose-100 text-rose-700 text-[10px] rounded-full font-black uppercase tracking-wider">
+                            متأخر
+                          </span>
+                        )}
+                      </td>
+                      <td className="px-6 py-4 text-sm">
+                        <div className="flex items-center gap-2">
+                          {isAdmin ? (
+                            <input
+                              type="tel"
+                              key={item.id}
+                              defaultValue={item.phone || ""}
+                              onBlur={(e) =>
+                                handleUpdatePhone(
+                                  item.customer,
+                                  item.installmentCode,
+                                  e.target.value,
+                                )
+                              }
+                              className="w-full bg-transparent border-b border-transparent group-hover:border-slate-200 focus:border-green-500 focus:outline-none transition-all py-1 text-xs font-mono"
+                              placeholder="201012345678"
+                            />
+                          ) : (
+                            <span className="text-xs font-mono text-slate-500">
+                              {item.phone || ""}
+                            </span>
+                          )}
+                          {item.phone?.trim() && (
+                            <button
+                              onClick={() => openWhatsApp(item)}
+                              className="flex-shrink-0 p-1.5 rounded-lg bg-green-100 text-green-600 hover:bg-green-200 transition-colors"
+                              title="إرسال رسالة واتساب"
+                            >
+                              <MessageCircle size={16} />
+                            </button>
+                          )}
+                        </div>
+                      </td>
+                      <td className="px-6 py-4 text-slate-500 text-sm">
+                        {isAdmin ? (
+                          <input
+                            type="text"
+                            value={item.notes || ""}
+                            onChange={(e) =>
+                              handleUpdateNote(
+                                item.customer,
+                                item.installmentCode,
+                                e.target.value,
+                              )
+                            }
+                            className="w-full bg-transparent border-b border-transparent group-hover:border-slate-200 focus:border-indigo-500 focus:outline-none transition-all py-1 text-xs italic"
+                            placeholder="أضف ملاحظة..."
+                          />
+                        ) : (
+                          <span className="text-xs italic">
+                            {item.notes || ""}
+                          </span>
+                        )}
+                      </td>
+                    </motion.tr>
+                  );
+                })}
               </AnimatePresence>
             </tbody>
             <tfoot className="bg-slate-50/50 font-bold border-t-2 border-slate-200">
               <tr>
-                <td colSpan={4} className="px-6 py-4 text-slate-700">
+                <td
+                  colSpan={isAdmin ? 5 : 4}
+                  className="px-6 py-4 text-slate-700"
+                >
                   الإجمالي للمجموعة الحالية
                 </td>
                 <td className="px-6 py-4 text-slate-900">
@@ -1736,12 +2032,35 @@ function DashboardView({
                 <td className="px-6 py-4 text-rose-700 text-center">
                   {formatCurrency(totals.remaining)}
                 </td>
-                <td colSpan={3} className="px-6 py-4"></td>
+                <td colSpan={isAdmin ? 4 : 3} className="px-6 py-4"></td>
               </tr>
             </tfoot>
           </table>
         </div>
       </div>
+
+      {/* Bulk WhatsApp floating bar */}
+      {isAdmin && selectedRows.size > 0 && (
+        <div className="fixed bottom-6 left-1/2 -translate-x-1/2 z-50 flex items-center gap-4 bg-slate-900 text-white px-6 py-3 rounded-2xl shadow-2xl">
+          <span className="text-sm font-bold">
+            تم تحديد {selectedRows.size} عميل
+          </span>
+          <button
+            onClick={sendBulkWhatsApp}
+            className="flex items-center gap-2 px-4 py-2 bg-green-500 hover:bg-green-400 rounded-xl font-bold text-sm transition-colors"
+          >
+            <MessageCircle size={18} />
+            إرسال واتساب للمحددين
+          </button>
+          <button
+            onClick={() => setSelectedRows(new Set())}
+            className="p-1.5 hover:bg-slate-700 rounded-lg transition-colors"
+            title="إلغاء التحديد"
+          >
+            <X size={16} />
+          </button>
+        </div>
+      )}
     </>
   );
 }
