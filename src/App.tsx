@@ -591,7 +591,7 @@ function MainApp() {
       {/* Header (Screen Only) */}
       <header className="flex flex-col md:flex-row justify-between items-start md:items-center mb-8 gap-4 print:hidden">
         <div>
-          <h1 className="text-3xl font-bold text-slate-800 mb-2">لوحة تحكم التحصيل العقاري</h1>
+          <h1 className="text-3xl font-bold text-slate-800 mb-2">HIG collection report - elshaer</h1>
           <p className="text-slate-500">تحليل احترافي لبيانات العملاء والأقساط المستحقة</p>
         </div>
         <div className="flex flex-wrap gap-3">
