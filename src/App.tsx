@@ -1610,7 +1610,7 @@ function DashboardView({
 
   const sendBulkWhatsApp = () => {
     const selected = filteredData.filter((item: InstallmentData) =>
-      selectedRows.has(`${item.customer}_${item.installmentCode}`),
+      selectedRows.has(buildInstallmentKey(item)),
     );
     const withPhone = selected.filter((item: InstallmentData) =>
       item.phone?.trim(),
@@ -1671,119 +1671,114 @@ function DashboardView({
 
       {/* Charts Section */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-8">
+        {/* Project Distribution Card */}
         <div className="bg-white p-6 rounded-2xl shadow-sm border border-slate-100">
-          <h3 className="text-lg font-semibold mb-4 flex items-center gap-2">
+          <h3 className="text-lg font-bold mb-6 flex items-center gap-2 text-slate-800">
             <PieChartIcon size={20} className="text-indigo-600" />
             توزيع التحصيل حسب المشروع
           </h3>
-          <div className="h-[300px]">
-            {stats.projectStats.length > 0 ? (
-              <ResponsiveContainer
-                width="100%"
-                height="100%"
-                minWidth={0}
-                debounce={100}
-              >
-                <PieChart>
-                  <Pie
-                    data={stats.projectStats}
-                    cx="50%"
-                    cy="50%"
-                    innerRadius={60}
-                    outerRadius={100}
-                    paddingAngle={5}
-                    dataKey="collected"
-                    nameKey="name"
-                    label={({ name, percent }) =>
-                      `${name} (${(percent * 100).toFixed(0)}%)`
-                    }
-                  >
-                    {stats.projectStats.map((entry: any, index: number) => (
-                      <Cell
-                        key={`cell-${index}`}
-                        fill={
-                          [
-                            "#6366f1",
-                            "#10b981",
-                            "#f43f5e",
-                            "#f59e0b",
-                            "#8b5cf6",
-                          ][index % 5]
-                        }
-                      />
-                    ))}
-                  </Pie>
-                  <Tooltip
-                    formatter={(value: number) => formatCurrency(value)}
-                  />
-                  <Legend />
-                </PieChart>
-              </ResponsiveContainer>
-            ) : (
-              <div className="h-full flex items-center justify-center text-slate-400">
-                لا توجد بيانات للمشاريع
-              </div>
-            )}
+          <div className="flex flex-col xl:flex-row items-center gap-8">
+            <div className="h-[280px] w-full xl:w-1/2">
+              {stats.projectStats.length > 0 ? (
+                <ResponsiveContainer width="100%" height="100%">
+                  <PieChart>
+                    <Pie
+                      data={stats.projectStats}
+                      cx="50%"
+                      cy="50%"
+                      innerRadius={60}
+                      outerRadius={90}
+                      paddingAngle={8}
+                      dataKey="collected"
+                      nameKey="name"
+                      stroke="none"
+                    >
+                      {stats.projectStats.map((entry: any, index: number) => (
+                        <Cell
+                          key={`cell-${index}`}
+                          fill={["#6366f1", "#10b981", "#f43f5e", "#f59e0b", "#8b5cf6"][index % 5]}
+                        />
+                      ))}
+                    </Pie>
+                    <Tooltip
+                      contentStyle={{ borderRadius: "1rem", border: "none", boxShadow: "0 10px 15px -3px rgb(0 0 0 / 0.1)", textAlign: "right", direction: "rtl" }}
+                      formatter={(value: number) => [formatCurrency(value), "المحصل"]}
+                    />
+                  </PieChart>
+                </ResponsiveContainer>
+              ) : (
+                <div className="h-full flex items-center justify-center text-slate-400 font-medium">لا توجد بيانات للمشاريع</div>
+              )}
+            </div>
+            {/* Detailed Side Legend */}
+            <div className="w-full xl:w-1/2 space-y-3 max-h-[280px] overflow-y-auto">
+              {stats.projectStats.map((p, index) => {
+                const percent = ((p.collected / stats.totalCollected) * 100) || 0;
+                return (
+                  <div key={p.name} className="flex flex-col gap-1 p-2 rounded-xl hover:bg-slate-50 transition-colors border border-transparent hover:border-slate-100">
+                    <div className="flex items-center justify-between">
+                      <div className="flex items-center gap-2">
+                        <div className="w-3 h-3 rounded-full" style={{ backgroundColor: ["#6366f1", "#10b981", "#f43f5e", "#f59e0b", "#8b5cf6"][index % 5] }} />
+                        <span className="text-xs font-black text-slate-700">{p.name}</span>
+                      </div>
+                      <span className="text-[10px] font-black py-0.5 px-2 bg-slate-100 text-slate-600 rounded-full">%{percent.toFixed(1)}</span>
+                    </div>
+                    <div className="text-[11px] font-bold text-slate-400 mr-5">{formatCurrency(p.collected)}</div>
+                  </div>
+                );
+              })}
+            </div>
           </div>
         </div>
+
+        {/* Financial Trend Card */}
         <div className="bg-white p-6 rounded-2xl shadow-sm border border-slate-100">
-          <h3 className="text-lg font-semibold mb-4 flex items-center gap-2">
-            <TrendingUp size={20} className="text-indigo-600" />
-            التدفق المالي الشهري
+          <h3 className="text-lg font-bold mb-6 flex items-center gap-2 text-slate-800">
+            <TrendingUp size={20} className="text-emerald-600" />
+            الاتجاه المالي للتحصيلات
           </h3>
-          <div className="h-[300px]">
+          <div className="h-[280px]">
             {stats.monthlyStats.length > 0 ? (
-              <ResponsiveContainer
-                width="100%"
-                height="100%"
-                minWidth={0}
-                debounce={100}
-              >
-                <AreaChart
-                  data={stats.monthlyStats}
-                  margin={{ top: 10, right: 10, left: 0, bottom: 0 }}
-                >
-                  <CartesianGrid
-                    strokeDasharray="3 3"
-                    vertical={false}
-                    stroke="#f1f5f9"
+              <ResponsiveContainer width="100%" height="100%">
+                <AreaChart data={stats.monthlyStats} margin={{ top: 20, right: 10, left: 0, bottom: 0 }}>
+                  <defs>
+                    <linearGradient id="colorTrend" x1="0" y1="0" x2="0" y2="1">
+                      <stop offset="5%" stopColor="#10b981" stopOpacity={0.2}/>
+                      <stop offset="95%" stopColor="#10b981" stopOpacity={0}/>
+                    </linearGradient>
+                  </defs>
+                  <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f1f5f9" />
+                  <XAxis dataKey="month" tick={{ fontSize: 10, fontWeight: "bold" }} axisLine={false} tickLine={false} />
+                  <YAxis 
+                    tickFormatter={(v) => v >= 1000000 ? `${(v/1000000).toFixed(1)}M` : v >= 1000 ? `${(v/1000).toFixed(0)}K` : v}
+                    tick={{ fontSize: 10, fontWeight: "bold" }}
+                    axisLine={false}
+                    tickLine={false}
                   />
-                  <XAxis dataKey="month" tick={{ fontSize: 10 }} />
-                  <YAxis
-                    tickFormatter={(v) =>
-                      v >= 1000000
-                        ? `${(v / 1000000).toFixed(1)}M`
-                        : v >= 1000
-                          ? `${(v / 1000).toFixed(0)}K`
-                          : v
-                    }
-                    tick={{ fontSize: 10 }}
+                  <Tooltip 
+                    contentStyle={{ borderRadius: "1rem", border: "none", boxShadow: "0 10px 15px -3px rgb(0 0 0 / 0.1)", textAlign: "right", direction: "rtl" }}
+                    formatter={(value: number) => [formatCurrency(value), "المحصل"]}
                   />
-                  <Tooltip
-                    formatter={(value: number) => formatCurrency(value)}
-                  />
-                  <Area
-                    type="monotone"
-                    dataKey="collected"
-                    name="المحصل"
-                    stroke="#10b981"
-                    fill="#10b981"
-                    fillOpacity={0.1}
-                  />
-                  <Area
-                    type="monotone"
-                    dataKey="remaining"
-                    name="المتبقي"
-                    stroke="#f43f5e"
-                    fill="#f43f5e"
-                    fillOpacity={0.1}
-                  />
+                  <Area 
+                    type="monotone" 
+                    dataKey="collected" 
+                    stroke="#10b981" 
+                    strokeWidth={4} 
+                    fillOpacity={1} 
+                    fill="url(#colorTrend)"
+                  >
+                    <LabelList 
+                      dataKey="collected" 
+                      position="top" 
+                      offset={10} 
+                      formatter={(v: number) => v > 0 ? (v >= 1000 ? `${(v/1000).toFixed(0)}K` : v) : ''}
+                      className="text-[9px] font-black fill-slate-400"
+                    />
+                  </Area>
                 </AreaChart>
               </ResponsiveContainer>
             ) : (
-              <div className="h-full flex items-center justify-center text-slate-400">
-                لا توجد بيانات شهرية
-              </div>
+              <div className="h-full flex items-center justify-center text-slate-400 font-medium">لا توجد بيانات زمنية</div>
             )}
           </div>
         </div>
@@ -2152,49 +2147,71 @@ function ReportsView({
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
         <div className="card-ledger p-6 bg-white">
           <div className="flex items-center justify-between mb-8">
-            <h3 className="text-lg font-black text-slate-900">توزيع المشاريع</h3>
+            <h3 className="text-lg font-black text-slate-900 border-r-4 border-indigo-500 pr-3">توزيع أداء المشاريع</h3>
             <div className="p-2 bg-indigo-50 text-indigo-600 rounded-xl">
               <PieChartIcon size={20} />
             </div>
           </div>
-          <div className="h-[350px]">
-            {stats.projectStats.length > 0 ? (
-              <ResponsiveContainer width="100%" height="100%">
-                <PieChart>
-                  <Pie
-                    data={stats.projectStats}
-                    cx="50%"
-                    cy="50%"
-                    innerRadius={80}
-                    outerRadius={110}
-                    paddingAngle={8}
-                    dataKey="collected"
-                    nameKey="name"
-                    stroke="none"
-                  >
-                    {stats.projectStats.map((_, index) => (
-                      <Cell
-                        key={`cell-${index}`}
-                        fill={["#6366f1", "#10b981", "#f43f5e", "#f59e0b", "#8b5cf6"][index % 5]}
-                      />
-                    ))}
-                  </Pie>
-                  <Tooltip
-                    contentStyle={{ borderRadius: "1.5rem", border: "none", boxShadow: "0 20px 25px -5px rgb(0 0 0 / 0.1)", textAlign: "right" }}
-                    formatter={(value: number) => [formatCurrency(value), "المحصل"]}
-                  />
-                  <Legend verticalAlign="bottom" height={36} formatter={(value) => <span className="text-[10px] font-bold text-slate-500 mr-2">{value}</span>} />
-                </PieChart>
-              </ResponsiveContainer>
-            ) : (
-              <NoDataPlaceholder icon={<PieChartIcon size={48} />} text="لا توجد بيانات للمشاريع" />
-            )}
+          <div className="flex flex-col xl:flex-row items-center gap-8">
+            <div className="h-[320px] w-full xl:w-1/2">
+              {stats.projectStats.length > 0 ? (
+                <ResponsiveContainer width="100%" height="100%">
+                  <PieChart>
+                    <Pie
+                      data={stats.projectStats}
+                      cx="50%"
+                      cy="50%"
+                      innerRadius={80}
+                      outerRadius={110}
+                      paddingAngle={8}
+                      dataKey="collected"
+                      nameKey="name"
+                      stroke="none"
+                    >
+                      {stats.projectStats.map((_, index) => (
+                        <Cell
+                          key={`cell-${index}`}
+                          fill={["#6366f1", "#10b981", "#f43f5e", "#f59e0b", "#8b5cf6"][index % 5]}
+                        />
+                      ))}
+                    </Pie>
+                    <Tooltip
+                      contentStyle={{ borderRadius: "1.5rem", border: "none", boxShadow: "0 20px 25px -5px rgb(0 0 0 / 0.1)", textAlign: "right", direction: "rtl" }}
+                      formatter={(value: number) => [formatCurrency(value), "المحصل"]}
+                    />
+                  </PieChart>
+                </ResponsiveContainer>
+              ) : (
+                <NoDataPlaceholder icon={<PieChartIcon size={48} />} text="لا توجد بيانات للمشاريع" />
+              )}
+            </div>
+            {/* Reports Legend */}
+            <div className="w-full xl:w-1/2 space-y-4 max-h-[320px] overflow-y-auto pr-2 custom-scrollbar">
+              {stats.projectStats.map((p, index) => {
+                const percent = ((p.collected / stats.totalCollected) * 100) || 0;
+                return (
+                  <div key={p.name} className="flex flex-col gap-1.5 p-3 rounded-2xl bg-slate-50/50 border border-slate-100 hover:border-indigo-200 transition-all">
+                    <div className="flex items-center justify-between">
+                      <div className="flex items-center gap-3">
+                        <div className="w-4 h-4 rounded-full shadow-sm" style={{ backgroundColor: ["#6366f1", "#10b981", "#f43f5e", "#f59e0b", "#8b5cf6"][index % 5] }} />
+                        <span className="text-sm font-black text-slate-800">{p.name}</span>
+                      </div>
+                      <span className="text-[11px] font-black py-1 px-3 bg-white text-indigo-600 rounded-full border border-indigo-100 shadow-sm">%{percent.toFixed(1)}</span>
+                    </div>
+                    <div className="flex justify-between items-center mr-7">
+                      <span className="text-xs font-bold text-slate-400">صافي المحصل:</span>
+                      <span className="text-sm font-black text-slate-700">{formatCurrency(p.collected)}</span>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
           </div>
         </div>
 
         <div className="card-ledger p-6 bg-white">
           <div className="flex items-center justify-between mb-8">
-            <h3 className="text-lg font-black text-slate-900">الاتجاه المالي</h3>
+            <h3 className="text-lg font-black text-slate-900 border-r-4 border-emerald-500 pr-3">تحليل الاتجاه المالي</h3>
             <div className="p-2 bg-emerald-50 text-emerald-600 rounded-xl">
               <TrendingUp size={20} />
             </div>
@@ -2202,7 +2219,7 @@ function ReportsView({
           <div className="h-[350px]">
             {stats.monthlyStats.length > 0 ? (
               <ResponsiveContainer width="100%" height="100%">
-                <AreaChart data={stats.monthlyStats} margin={{ top: 10, right: 10, left: 0, bottom: 0 }}>
+                <AreaChart data={stats.monthlyStats} margin={{ top: 30, right: 20, left: 0, bottom: 0 }}>
                   <defs>
                     <linearGradient id="colorReport" x1="0" y1="0" x2="0" y2="1">
                       <stop offset="5%" stopColor="#10b981" stopOpacity={0.3}/>
@@ -2210,15 +2227,34 @@ function ReportsView({
                     </linearGradient>
                   </defs>
                   <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f1f5f9" />
-                  <XAxis dataKey="month" tick={{ fontSize: 10, fontWeight: "bold" }} axisLine={false} tickLine={false} />
+                  <XAxis dataKey="month" tick={{ fontSize: 11, fontWeight: "black" }} axisLine={false} tickLine={false} />
                   <YAxis 
                     tickFormatter={(v) => v >= 1000000 ? `${(v/1000000).toFixed(1)}M` : v >= 1000 ? `${(v/1000).toFixed(0)}K` : v}
                     tick={{ fontSize: 10, fontWeight: "bold" }}
                     axisLine={false}
                     tickLine={false}
                   />
-                  <Tooltip formatter={(value: number) => [formatCurrency(value), "المحصل"]} />
-                  <Area type="monotone" dataKey="collected" stroke="#10b981" strokeWidth={4} fillOpacity={1} fill="url(#colorReport)" />
+                  <Tooltip 
+                    contentStyle={{ borderRadius: "1.5rem", border: "none", boxShadow: "0 20px 25px -5px rgb(0 0 0 / 0.1)", textAlign: "right", direction: "rtl" }}
+                    formatter={(value: number) => [formatCurrency(value), "المحصل"]}
+                  />
+                  <Area 
+                    type="monotone" 
+                    dataKey="collected" 
+                    stroke="#10b981" 
+                    strokeWidth={5} 
+                    fillOpacity={1} 
+                    fill="url(#colorReport)"
+                    animationDuration={1500}
+                  >
+                    <LabelList 
+                      dataKey="collected" 
+                      position="top" 
+                      offset={15} 
+                      formatter={(v: number) => v > 0 ? (v >= 1000000 ? `${(v/1000000).toFixed(1)}M` : v >= 1000 ? `${(v/1000).toFixed(0)}K` : v) : ''}
+                      className="text-[10px] font-black fill-slate-500"
+                    />
+                  </Area>
                 </AreaChart>
               </ResponsiveContainer>
             ) : (
