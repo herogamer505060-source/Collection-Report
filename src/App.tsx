@@ -33,6 +33,7 @@ import {
 import {
   Upload,
   TrendingUp,
+  TrendingDown,
   DollarSign,
   Users,
   AlertCircle,
@@ -1640,29 +1641,29 @@ function DashboardView({
           <KpiCard
             title="إجمالي القيمة الصافية"
             value={formatCurrency(stats.totalNetValue)}
-            icon={<DollarSign className="text-indigo-600" />}
-            trend="المستحق"
+            icon={<DollarSign size={24} />}
+            subtitle="المستحق"
             color="indigo"
           />
           <KpiCard
             title="إجمالي المحصل الفعلي"
             value={formatCurrency(stats.totalCollected)}
-            icon={<CheckCircle2 className="text-emerald-600" />}
-            trend={`${stats.collectionRate.toFixed(1)}%`}
+            icon={<CheckCircle2 size={24} />}
+            subtitle={`${stats.collectionRate.toFixed(1)}% معدل التحصيل`}
             color="emerald"
           />
           <KpiCard
             title="إجمالي المتبقي"
             value={formatCurrency(stats.totalRemaining)}
-            icon={<AlertCircle className="text-rose-600" />}
-            trend="متأخرات"
+            icon={<AlertCircle size={24} />}
+            subtitle="متأخرات"
             color="rose"
           />
           <KpiCard
             title="عدد العملاء"
             value={data.length.toString()}
-            icon={<Users className="text-amber-600" />}
-            trend="نشط"
+            icon={<Users size={24} />}
+            subtitle="نشط"
             color="amber"
           />
         </div>
@@ -2092,223 +2093,178 @@ function ReportsView({
   isAdmin,
 }: ReportsViewProps) {
   return (
-    <div className="space-y-8">
+    <div className="space-y-8 pb-12">
       {/* Reports Header */}
-      <div className="bg-white p-6 rounded-2xl shadow-sm border border-slate-100 flex flex-col md:flex-row justify-between items-center gap-4">
-        <div>
-          <h2 className="text-xl font-bold text-slate-800">
-            مركز التقارير والطباعة
+      <div className="card-ledger p-6 md:p-8 bg-white/80 backdrop-blur-md flex flex-col md:flex-row justify-between items-center gap-6 border-b-4 border-indigo-500/20">
+        <div className="text-center md:text-right">
+          <h2 className="text-2xl font-black text-slate-900 flex items-center gap-3 justify-center md:justify-start">
+            <span className="w-2 h-8 bg-indigo-600 rounded-full hidden md:block" />
+            مركز التقارير والتحليل المالي
           </h2>
-          <p className="text-slate-500 text-sm">
-            استخرج تقارير مفصلة وقم بطباعتها أو تصديرها
-          </p>
+          <p className="text-slate-500 font-medium mt-2">نظرة شاملة على أداء التحصيلات وتدفقات السيولة النقدية</p>
         </div>
         {isAdmin && (
-          <div className="flex gap-3">
+          <div className="flex flex-wrap justify-center gap-4">
             <button
               onClick={handleExportExcel}
-              className="flex items-center gap-2 px-6 py-2.5 bg-emerald-600 text-white rounded-xl shadow-md hover:bg-emerald-700 transition-all active:scale-95 font-bold"
+              className="flex items-center gap-3 px-6 py-3 bg-emerald-50 text-emerald-700 border border-emerald-100 rounded-2xl font-black hover:bg-emerald-600 hover:text-white transition-all active:scale-95 shadow-sm"
             >
               <FileSpreadsheet size={20} />
               تصدير Excel
             </button>
             <button
               onClick={handlePrint}
-              className="flex items-center gap-2 px-6 py-2.5 bg-indigo-600 text-white rounded-xl shadow-md hover:bg-indigo-700 transition-all active:scale-95 font-bold"
+              className="flex items-center gap-3 px-6 py-3 bg-indigo-600 text-white rounded-2xl font-black hover:bg-indigo-700 transition-all active:scale-95 shadow-lg shadow-indigo-200"
             >
               <Printer size={20} />
-              طباعة التقرير (PDF)
+              طباعة (PDF)
             </button>
           </div>
         )}
       </div>
 
-      {/* Summary Stats for Reports */}
+      {/* KPI Stats */}
       <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-        <div className="bg-white p-6 rounded-2xl border border-slate-100 shadow-sm">
-          <p className="text-slate-500 text-sm mb-1">إجمالي المستحق</p>
-          <p className="text-2xl font-bold text-slate-800">
-            {formatCurrency(stats.totalNetValue)}
-          </p>
-        </div>
-        <div className="bg-white p-6 rounded-2xl border border-slate-100 shadow-sm">
-          <p className="text-slate-500 text-sm mb-1">المحصل الفعلي</p>
-          <p className="text-2xl font-bold text-emerald-600">
-            {formatCurrency(stats.totalCollected)}
-          </p>
-        </div>
-        <div className="bg-white p-6 rounded-2xl border border-slate-100 shadow-sm">
-          <p className="text-slate-500 text-sm mb-1">المتبقي للتحصيل</p>
-          <p className="text-2xl font-bold text-rose-600">
-            {formatCurrency(stats.totalRemaining)}
-          </p>
-        </div>
+        <KpiCard
+          title="إجمالي القيمة التعاقدية"
+          value={formatCurrency(stats.totalNetValue)}
+          icon={<DollarSign size={20} />}
+          color="indigo"
+          subtitle="كامل قيمة الأقساط"
+        />
+        <KpiCard
+          title="إجمالي التحصيلات"
+          value={formatCurrency(stats.totalCollected)}
+          icon={<CheckCircle2 size={20} />}
+          color="emerald"
+          subtitle={`${stats.collectionRate.toFixed(1)}% معدل التحصيل`}
+        />
+        <KpiCard
+          title="الرصيد المتبقي"
+          value={formatCurrency(stats.totalRemaining)}
+          icon={<AlertCircle size={20} />}
+          color="rose"
+          subtitle="تحصيلات قيد الانتظار"
+        />
       </div>
 
       {/* Charts Section */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
-        <div className="bg-white p-6 rounded-2xl shadow-sm border border-slate-100">
-          <h3 className="text-lg font-semibold mb-6 flex items-center gap-2">
-            <PieChartIcon size={20} className="text-indigo-600" />
-            توزيع التحصيل حسب المشروع
-          </h3>
-          <div className="h-[350px] w-full min-h-[350px]">
+        <div className="card-ledger p-6 bg-white">
+          <div className="flex items-center justify-between mb-8">
+            <h3 className="text-lg font-black text-slate-900">توزيع المشاريع</h3>
+            <div className="p-2 bg-indigo-50 text-indigo-600 rounded-xl">
+              <PieChartIcon size={20} />
+            </div>
+          </div>
+          <div className="h-[350px]">
             {stats.projectStats.length > 0 ? (
-              <ResponsiveContainer
-                width="100%"
-                height="100%"
-                minWidth={0}
-                debounce={100}
-                minHeight={350}
-              >
+              <ResponsiveContainer width="100%" height="100%">
                 <PieChart>
                   <Pie
                     data={stats.projectStats}
                     cx="50%"
                     cy="50%"
-                    innerRadius={60}
-                    outerRadius={100}
-                    paddingAngle={5}
+                    innerRadius={80}
+                    outerRadius={110}
+                    paddingAngle={8}
                     dataKey="collected"
                     nameKey="name"
-                    label={({ name, percent }) =>
-                      `${name} (${(percent * 100).toFixed(0)}%)`
-                    }
+                    stroke="none"
                   >
-                    {stats.projectStats.map((entry: any, index: number) => (
+                    {stats.projectStats.map((_, index) => (
                       <Cell
                         key={`cell-${index}`}
-                        fill={
-                          [
-                            "#6366f1",
-                            "#10b981",
-                            "#f43f5e",
-                            "#f59e0b",
-                            "#8b5cf6",
-                          ][index % 5]
-                        }
+                        fill={["#6366f1", "#10b981", "#f43f5e", "#f59e0b", "#8b5cf6"][index % 5]}
                       />
                     ))}
                   </Pie>
                   <Tooltip
-                    formatter={(value: number) => formatCurrency(value)}
+                    contentStyle={{ borderRadius: "1.5rem", border: "none", boxShadow: "0 20px 25px -5px rgb(0 0 0 / 0.1)", textAlign: "right" }}
+                    formatter={(value: number) => [formatCurrency(value), "المحصل"]}
                   />
-                  <Legend />
+                  <Legend verticalAlign="bottom" height={36} formatter={(value) => <span className="text-[10px] font-bold text-slate-500 mr-2">{value}</span>} />
                 </PieChart>
               </ResponsiveContainer>
             ) : (
-              <div className="h-full flex items-center justify-center text-slate-400">
-                لا توجد بيانات للمشاريع
-              </div>
+              <NoDataPlaceholder icon={<PieChartIcon size={48} />} text="لا توجد بيانات للمشاريع" />
             )}
           </div>
         </div>
 
-        <div className="bg-white p-6 rounded-2xl shadow-sm border border-slate-100">
-          <h3 className="text-lg font-semibold mb-6 flex items-center gap-2">
-            <TrendingUp size={20} className="text-indigo-600" />
-            التدفق المالي الشهري
-          </h3>
-          <div className="h-[350px] w-full min-h-[350px]">
+        <div className="card-ledger p-6 bg-white">
+          <div className="flex items-center justify-between mb-8">
+            <h3 className="text-lg font-black text-slate-900">الاتجاه المالي</h3>
+            <div className="p-2 bg-emerald-50 text-emerald-600 rounded-xl">
+              <TrendingUp size={20} />
+            </div>
+          </div>
+          <div className="h-[350px]">
             {stats.monthlyStats.length > 0 ? (
-              <ResponsiveContainer
-                width="100%"
-                height="100%"
-                minWidth={0}
-                debounce={100}
-                minHeight={350}
-              >
-                <AreaChart
-                  data={stats.monthlyStats}
-                  margin={{ top: 10, right: 10, left: 0, bottom: 0 }}
-                >
-                  <CartesianGrid
-                    strokeDasharray="3 3"
-                    vertical={false}
-                    stroke="#f1f5f9"
+              <ResponsiveContainer width="100%" height="100%">
+                <AreaChart data={stats.monthlyStats} margin={{ top: 10, right: 10, left: 0, bottom: 0 }}>
+                  <defs>
+                    <linearGradient id="colorReport" x1="0" y1="0" x2="0" y2="1">
+                      <stop offset="5%" stopColor="#10b981" stopOpacity={0.3}/>
+                      <stop offset="95%" stopColor="#10b981" stopOpacity={0}/>
+                    </linearGradient>
+                  </defs>
+                  <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f1f5f9" />
+                  <XAxis dataKey="month" tick={{ fontSize: 10, fontWeight: "bold" }} axisLine={false} tickLine={false} />
+                  <YAxis 
+                    tickFormatter={(v) => v >= 1000000 ? `${(v/1000000).toFixed(1)}M` : v >= 1000 ? `${(v/1000).toFixed(0)}K` : v}
+                    tick={{ fontSize: 10, fontWeight: "bold" }}
+                    axisLine={false}
+                    tickLine={false}
                   />
-                  <XAxis dataKey="month" tick={{ fontSize: 10 }} />
-                  <YAxis
-                    tickFormatter={(v) =>
-                      v >= 1000000
-                        ? `${(v / 1000000).toFixed(1)}M`
-                        : v >= 1000
-                          ? `${(v / 1000).toFixed(0)}K`
-                          : v
-                    }
-                    tick={{ fontSize: 10 }}
-                  />
-                  <Tooltip
-                    formatter={(value: number) => formatCurrency(value)}
-                  />
-                  <Area
-                    type="monotone"
-                    dataKey="collected"
-                    name="المحصل"
-                    stroke="#10b981"
-                    fill="#10b981"
-                    fillOpacity={0.1}
-                  />
+                  <Tooltip formatter={(value: number) => [formatCurrency(value), "المحصل"]} />
+                  <Area type="monotone" dataKey="collected" stroke="#10b981" strokeWidth={4} fillOpacity={1} fill="url(#colorReport)" />
                 </AreaChart>
               </ResponsiveContainer>
             ) : (
-              <div className="h-full flex items-center justify-center text-slate-400">
-                لا توجد بيانات شهرية
-              </div>
+              <NoDataPlaceholder icon={<TrendingUp size={48} />} text="لا توجد بيانات زمنية" />
             )}
           </div>
         </div>
       </div>
 
-      {/* Project Breakdown Table */}
-      <div className="bg-white p-6 rounded-2xl shadow-sm border border-slate-100">
-        <h3 className="text-lg font-semibold mb-6">تحليل المشاريع</h3>
+      {/* Analytical Table */}
+      <div className="card-ledger bg-white overflow-hidden">
+        <div className="px-8 py-6 border-b border-slate-100">
+          <h3 className="text-lg font-black text-slate-900">مقارنة أداء المشاريع</h3>
+        </div>
         <div className="overflow-x-auto">
           <table className="w-full text-right">
             <thead>
-              <tr className="text-slate-500 text-xs font-black uppercase tracking-wider border-b border-slate-100">
-                <th className="pb-4 text-right">المشروع</th>
-                <th className="pb-4 text-right">المستحق</th>
-                <th className="pb-4 text-right">المحصل</th>
-                <th className="pb-4 text-right">المتبقي</th>
-                <th className="pb-4 text-center">نسبة الإنجاز</th>
+              <tr className="bg-slate-50/50 text-slate-500 text-[10px] font-black uppercase border-b border-slate-100">
+                <th className="px-8 py-5">المشروع</th>
+                <th className="px-8 py-5">المستحق</th>
+                <th className="px-8 py-5">المحصل</th>
+                <th className="px-8 py-5">المتبقي</th>
+                <th className="px-8 py-5 text-center">الإنجاز</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-50">
-              {stats.projectStats.map((projectStat) => {
-                const completionRate = getCollectionRate(
-                  projectStat.collected,
-                  projectStat.total,
-                );
-
+              {stats.projectStats.map((p) => {
+                const rate = getCollectionRate(p.collected, p.total);
                 return (
-                  <tr
-                    key={projectStat.name}
-                    className="hover:bg-slate-50/50 transition-colors"
-                  >
-                    <td className="py-4 font-black text-slate-800">
-                      {projectStat.name}
-                    </td>
-                    <td className="py-4 font-bold">
-                      {formatCurrency(projectStat.total)}
-                    </td>
-                    <td className="py-4 text-emerald-600 font-bold">
-                      {formatCurrency(projectStat.collected)}
-                    </td>
-                    <td className="py-4 text-rose-600 font-bold">
-                      {formatCurrency(projectStat.remaining)}
-                    </td>
-                    <td className="py-4">
-                      <div className="flex items-center gap-3 justify-center">
-                        <div className="w-32 h-2 bg-slate-100 rounded-full overflow-hidden">
+                  <tr key={p.name} className="hover:bg-slate-50/50 transition-colors group">
+                    <td className="px-8 py-5 font-black text-slate-800">{p.name}</td>
+                    <td className="px-8 py-5 font-bold">{formatCurrency(p.total)}</td>
+                    <td className="px-8 py-5 font-black text-emerald-600">{formatCurrency(p.collected)}</td>
+                    <td className="px-8 py-5 font-black text-rose-500">{formatCurrency(p.remaining)}</td>
+                    <td className="px-8 py-5">
+                      <div className="flex items-center gap-4 justify-center">
+                        <div className="w-32 h-2.5 bg-slate-100 rounded-full overflow-hidden shadow-inner">
                           <div
-                            className="h-full bg-indigo-600 rounded-full shadow-[0_0_8px_rgba(99,102,241,0.4)]"
-                            style={{ width: `${completionRate}%` }}
+                            className={cn(
+                              "h-full rounded-full transition-all duration-1000",
+                              rate > 80 ? "bg-emerald-500 " : rate > 50 ? "bg-indigo-500" : "bg-rose-500"
+                            )}
+                            style={{ width: `${rate}%` }}
                           />
                         </div>
-                        <span className="text-xs font-black text-slate-700">
-                          {completionRate.toFixed(1)}%
-                        </span>
+                        <span className="text-xs font-black text-slate-700">%{rate.toFixed(0)}</span>
                       </div>
                     </td>
                   </tr>
@@ -2322,51 +2278,71 @@ function ReportsView({
   );
 }
 
+function NoDataPlaceholder({ icon, text }: { icon: React.ReactNode, text: string }) {
+  return (
+    <div className="h-full flex flex-col items-center justify-center text-slate-300 gap-4">
+      <div className="opacity-20">{icon}</div>
+      <span className="text-sm font-bold opacity-50">{text}</span>
+    </div>
+  );
+}
+
 function KpiCard({
   title,
   value,
   icon,
   trend,
   color,
+  subtitle,
 }: {
   title: string;
-  value: string;
+  value: string | number;
   icon: React.ReactNode;
-  trend: string;
+  trend?: { value: number; isUp: boolean };
   color: string;
+  subtitle?: string;
 }) {
-  const colorMap: Record<string, string> = {
-    indigo: "bg-indigo-50 border-indigo-100",
-    emerald: "bg-emerald-50 border-emerald-100",
-    rose: "bg-rose-50 border-rose-100",
-    amber: "bg-amber-50 border-amber-100",
-  };
-
   return (
     <motion.div
       whileHover={{ y: -4 }}
-      className="bg-white p-6 rounded-2xl shadow-sm border border-slate-100 flex flex-col gap-4 print:shadow-none print:border-slate-300"
+      className="card-ledger p-6 hover:translate-y-[-4px] transition-all duration-300 group"
     >
-      <div className="flex justify-between items-start">
-        <div className={cn("p-3 rounded-xl border", colorMap[color])}>
-          {icon}
-        </div>
-        <span
+      <div className="flex items-center justify-between mb-6">
+        <div
           className={cn(
-            "text-xs font-bold px-2 py-1 rounded-full",
-            color === "emerald"
-              ? "bg-emerald-100 text-emerald-700"
-              : color === "rose"
-                ? "bg-rose-100 text-rose-700"
-                : "bg-slate-100 text-slate-600",
+            "w-14 h-14 rounded-2xl flex items-center justify-center transition-all group-hover:scale-110 shadow-lg",
+            color === "indigo" ? "bg-indigo-600 text-white shadow-indigo-200" :
+            color === "emerald" ? "bg-emerald-500 text-white shadow-emerald-200" :
+            color === "rose" ? "bg-rose-500 text-white shadow-rose-200" :
+            color === "amber" ? "bg-amber-500 text-white shadow-amber-200" :
+            "bg-slate-900 text-white shadow-slate-200"
           )}
         >
-          {trend}
-        </span>
+          {icon}
+        </div>
+        {trend && (
+          <div
+            className={cn(
+              "flex items-center gap-1 text-xs font-black px-3 py-1.5 rounded-full border shadow-sm",
+              trend.isUp ? "bg-emerald-50 text-emerald-600 border-emerald-100" : "bg-rose-50 text-rose-600 border-rose-100"
+            )}
+          >
+            {trend.isUp ? <TrendingUp size={14} /> : <TrendingDown size={14} />}
+            <span>%{Math.abs(trend.value).toFixed(1)}</span>
+          </div>
+        )}
       </div>
       <div>
-        <p className="text-slate-500 text-sm font-medium mb-1">{title}</p>
-        <p className="text-2xl font-bold text-slate-800">{value}</p>
+        <h3 className="text-slate-400 text-xs font-black mb-2 uppercase tracking-widest">{title}</h3>
+        <div className="flex items-baseline gap-2">
+          <span className="text-2xl font-black text-slate-900 tracking-tight">{value}</span>
+        </div>
+        {subtitle && (
+          <p className="text-[10px] text-slate-400 font-bold mt-2 flex items-center gap-1 opacity-70">
+            <span className="w-1 h-1 bg-current rounded-full" />
+            {subtitle}
+          </p>
+        )}
       </div>
     </motion.div>
   );
