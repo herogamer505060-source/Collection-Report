@@ -489,6 +489,11 @@ function MainApp() {
       }
 
       return matchesSearch && matchesProject && matchesDate;
+    }).sort((a, b) => {
+      // Sort from oldest to newest (ascending)
+      const dateA = a.date && a.date !== "-" && a.date !== "0" ? new Date(a.date).getTime() : 0;
+      const dateB = b.date && b.date !== "-" && b.date !== "0" ? new Date(b.date).getTime() : 0;
+      return dateA - dateB;
     });
   }, [data, searchTerm, filterProject, startDate, endDate]);
 
