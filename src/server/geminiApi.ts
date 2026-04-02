@@ -1,19 +1,27 @@
-import { GoogleGenAI, Type } from "@google/genai";
 import type { InstallmentData } from "../types";
 
-let aiInstance: GoogleGenAI | null = null;
+type GoogleGenAIInstance = InstanceType<
+  typeof import("@google/genai")["GoogleGenAI"]
+>;
+
+let aiInstance: GoogleGenAIInstance | null = null;
 
 export function isGeminiConfigured() {
   return !!process.env.GEMINI_API_KEY;
 }
 
-export function getAI() {
+async function getGeminiModule() {
+  return import("@google/genai");
+}
+
+export async function getAI() {
   if (!aiInstance) {
     const apiKey = process.env.GEMINI_API_KEY;
     if (!apiKey) {
       throw new Error("MISSING_API_KEY");
     }
 
+    const { GoogleGenAI } = await getGeminiModule();
     aiInstance = new GoogleGenAI({ apiKey });
   }
 
@@ -72,7 +80,8 @@ export function buildSystemPrompt(data: InstallmentData[]): string {
 }
 
 export async function analyzePdfWithGemini(base64Data: string) {
-  const ai = getAI();
+  const ai = await getAI();
+  const { Type } = await getGeminiModule();
   const result = await ai.models.generateContent({
     model: "gemini-3-flash-preview",
     contents: [
@@ -155,7 +164,7 @@ export async function chatWithGemini(
   message: string,
   data: InstallmentData[],
 ) {
-  const ai = getAI();
+  const ai = await getAI();
   const result = await ai.models.generateContent({
     model: "gemini-2.0-flash",
     contents: message,
