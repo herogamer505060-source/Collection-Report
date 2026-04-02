@@ -1,31 +1,77 @@
 import type { InstallmentData } from "../types";
 
-type GoogleGenAIInstance = InstanceType<
-  typeof import("@google/genai")["GoogleGenAI"]
->;
+const GEMINI_API_BASE = "https://generativelanguage.googleapis.com/v1beta/models";
 
-let aiInstance: GoogleGenAIInstance | null = null;
+type GeminiPart = {
+  text?: string;
+  inlineData?: {
+    mimeType: string;
+    data: string;
+  };
+};
+
+type GeminiContent = {
+  role?: "user" | "model";
+  parts: GeminiPart[];
+};
+
+type GeminiGenerateResponse = {
+  candidates?: Array<{
+    content?: {
+      parts?: Array<{
+        text?: string;
+      }>;
+    };
+  }>;
+  error?: {
+    message?: string;
+  };
+};
 
 export function isGeminiConfigured() {
   return !!process.env.GEMINI_API_KEY;
 }
 
-async function getGeminiModule() {
-  return import("@google/genai");
-}
-
-export async function getAI() {
-  if (!aiInstance) {
-    const apiKey = process.env.GEMINI_API_KEY;
-    if (!apiKey) {
-      throw new Error("MISSING_API_KEY");
-    }
-
-    const { GoogleGenAI } = await getGeminiModule();
-    aiInstance = new GoogleGenAI({ apiKey });
+function getApiKey() {
+  const apiKey = process.env.GEMINI_API_KEY;
+  if (!apiKey) {
+    throw new Error("MISSING_API_KEY");
   }
 
-  return aiInstance;
+  return apiKey;
+}
+
+async function generateContent(
+  model: string,
+  contents: GeminiContent[],
+  config?: Record<string, unknown>,
+) {
+  const apiKey = getApiKey();
+  const response = await fetch(
+    `${GEMINI_API_BASE}/${model}:generateContent?key=${encodeURIComponent(apiKey)}`,
+    {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({ contents, generationConfig: config }),
+    },
+  );
+
+  const payload = (await response.json().catch(() => null)) as
+    | GeminiGenerateResponse
+    | null;
+
+  if (!response.ok) {
+    throw new Error(payload?.error?.message || `GEMINI_HTTP_${response.status}`);
+  }
+
+  const text = payload?.candidates?.[0]?.content?.parts?.[0]?.text;
+  if (!text) {
+    throw new Error("EMPTY_GEMINI_RESPONSE");
+  }
+
+  return text;
 }
 
 export function buildSystemPrompt(data: InstallmentData[]): string {
@@ -63,57 +109,38 @@ export function buildSystemPrompt(data: InstallmentData[]): string {
     - إجمالي المتبقي: ${totalRemaining} ج.م
     - المشاريع: ${projects.join(", ")}
 
-    البيانات المفصلة (محدودة بـ 400 سجل):
+    البيانات المفصلة (محدودة بـ 200 سجل):
     ${header}
     ${rows}
 
     تعليمات هامة:
     1. أجب باللغة العربية بأسلوب مهني وواضح.
-    2. عند ذكر مبالغ مالية، استخدم صيغة "ج.م" (الجنيه المصري).
-    3. إذا سُئلت عن "المتأخرين"، فهم العملاء الذين لديهم مبلغ في خانة "المتبقي" وبدون "ورقة تجارية".
-    4. إذا سُئلت عن "أوراق تجارية"، ابحث في خانة "الورقة_التجارية".
-    5. التواريخ بصيغة YYYY-MM-DD. استخدم تاريخ اليوم (${today}) لحساب المواعيد (اليوم، غداً، الأسبوع القادم، إلخ).
-    6. إذا كانت الإجابة تتطلب قائمة، استخدم التنسيق النقطي.
-    7. إذا لم تجد العميل في البيانات المتاحة، اعتذر بأدب واطلب التأكد من الاسم.
-    8. لا تذكر أبداً أن البيانات محدودة أو تذكر التفاصيل التقنية للجدول.
+    2. عند ذكر مبالغ مالية، استخدم صيغة "ج.م".
+    3. إذا سُئلت عن المتأخرين، فهم العملاء الذين لديهم مبلغ متبقٍ وبدون ورقة تجارية.
+    4. إذا سُئلت عن أوراق تجارية، ابحث في خانة الورقة_التجارية.
+    5. إذا لم تجد الإجابة في البيانات، قل ذلك بوضوح.
+    6. لا تذكر تفاصيل تقنية عن النظام أو بنية البيانات.
   `;
 }
 
 export async function analyzePdfWithGemini(base64Data: string) {
-  const ai = await getAI();
-  const { Type } = await getGeminiModule();
-  const result = await ai.models.generateContent({
-    model: "gemini-3-flash-preview",
-    contents: [
+  const text = await generateContent(
+    "gemini-1.5-flash",
+    [
       {
+        role: "user",
         parts: [
           {
             text: `
               تحليل ملف PDF المرفق واستخراج بيانات أقساط العملاء في شكل JSON.
               الملف يحتوي على جدول بالأعمدة التالية:
-              1. العميل (customer)
-              2. المشروع (project)
-              3. كود الوحدة (unitCode)
-              4. نوع القسط (type)
-              5. كود القسط (installmentCode)
-              6. تاريخ القسط (date)
-              7. قيمة القسط (value)
-              8. صافي القسط (netValue)
-              9. المحصل (collected)
-              10. المتبقي (remaining)
-              11. الورقة التجارية (commercialPaper)
-              12. ملاحظات (notes)
+              customer, project, unitCode, type, installmentCode, date, value,
+              netValue, collected, remaining, commercialPaper, notes.
 
-              يجب أن يحتوي الـ JSON على قائمة من الكائنات بالخصائص المذكورة أعلاه.
-
-              قواعد هامة جداً للدقة:
-              - استخرج البيانات من جميع الصفحات الموجودة في الملف بدقة متناهية.
-              - انتبه لخانة "المتبقي" (remaining): في بعض الصفوف، قد يكون هناك مبلغ في "المحصل" ولكن "المتبقي" لا يزال مساوياً لـ "صافي القسط" (بسبب وجود ورقة تجارية لم تُحصل بعد). استخرج القيمة كما هي مكتوبة في الجدول تماماً ولا تفترض أن المحصل يقلل المتبقي إذا كان الجدول يذكر غير ذلك.
-              - لا تقم بتقريب الأرقام أبداً، استخرج القيم كما هي مكتوبة تماماً (مثلاً 1299600.00 تصبح 1299600).
-              - إذا كانت القيمة فارغة، ضع سلسلة نصية فارغة "" أو 0 للأرقام.
-              - تاريخ القسط يجب أن يكون بصيغة YYYY-MM-DD. إذا كان التاريخ في الملف بصيغة أخرى (مثل DD/MM/YYYY أو DD-MM-YYYY)، قم بتحويله بدقة إلى YYYY-MM-DD. إذا لم تجد تاريخاً أو كان غير واضح، ضع "0".
-              - تأكد من تحويل الأرقام إلى قيم عددية (بدون فواصل أو علامات عملة).
-              - لا تتجاهل أي صف في الجدول.
+              أرجع JSON array فقط بدون أي شرح إضافي.
+              استخدم YYYY-MM-DD للتاريخ.
+              اجعل الحقول الرقمية أرقاماً حقيقية.
+              لا تتجاهل أي صف.
             `,
           },
           {
@@ -125,25 +152,25 @@ export async function analyzePdfWithGemini(base64Data: string) {
         ],
       },
     ],
-    config: {
+    {
       responseMimeType: "application/json",
       responseSchema: {
-        type: Type.ARRAY,
+        type: "ARRAY",
         items: {
-          type: Type.OBJECT,
+          type: "OBJECT",
           properties: {
-            customer: { type: Type.STRING },
-            project: { type: Type.STRING },
-            unitCode: { type: Type.STRING },
-            type: { type: Type.STRING },
-            installmentCode: { type: Type.STRING },
-            date: { type: Type.STRING },
-            value: { type: Type.NUMBER },
-            netValue: { type: Type.NUMBER },
-            collected: { type: Type.NUMBER },
-            remaining: { type: Type.NUMBER },
-            commercialPaper: { type: Type.STRING },
-            notes: { type: Type.STRING },
+            customer: { type: "STRING" },
+            project: { type: "STRING" },
+            unitCode: { type: "STRING" },
+            type: { type: "STRING" },
+            installmentCode: { type: "STRING" },
+            date: { type: "STRING" },
+            value: { type: "NUMBER" },
+            netValue: { type: "NUMBER" },
+            collected: { type: "NUMBER" },
+            remaining: { type: "NUMBER" },
+            commercialPaper: { type: "STRING" },
+            notes: { type: "STRING" },
           },
           required: [
             "customer",
@@ -155,35 +182,30 @@ export async function analyzePdfWithGemini(base64Data: string) {
         },
       },
     },
-  });
+  );
 
-  return JSON.parse(result.text || "[]") as InstallmentData[];
+  return JSON.parse(text) as InstallmentData[];
 }
 
-export async function chatWithGemini(
-  message: string,
-  data: InstallmentData[],
-) {
-  const ai = await getAI();
+export async function chatWithGemini(message: string, data: InstallmentData[]) {
   const models = ["gemini-2.5-flash", "gemini-2.0-flash", "gemini-1.5-flash"];
   let lastError: unknown;
 
   for (const model of models) {
     try {
-      const result = await ai.models.generateContent({
+      return await generateContent(
         model,
-        contents: [
+        [
           {
             role: "user",
-            parts: [{ text: message }],
+            parts: [
+              {
+                text: `${buildSystemPrompt(data)}\n\nسؤال المستخدم: ${message}`,
+              },
+            ],
           },
         ],
-        config: {
-          systemInstruction: buildSystemPrompt(data),
-        },
-      });
-
-      return result.text || "";
+      );
     } catch (error) {
       lastError = error;
     }
