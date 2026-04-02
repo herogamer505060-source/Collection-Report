@@ -1,6 +1,22 @@
 import type { InstallmentData } from "../../src/types";
 import { chatWithGemini } from "../../src/server/geminiApi";
 
+function parseJsonBody(request: any) {
+  if (!request || request.body == null) {
+    return {};
+  }
+
+  if (typeof request.body === "string") {
+    try {
+      return JSON.parse(request.body);
+    } catch {
+      return {};
+    }
+  }
+
+  return request.body;
+}
+
 export default async function handler(request: any, response: any) {
   if (request.method !== "POST") {
     response.setHeader("Allow", "POST");
@@ -8,10 +24,11 @@ export default async function handler(request: any, response: any) {
     return;
   }
 
-  const { message, data } = request.body as {
+  const body = parseJsonBody(request) as {
     message?: string;
     data?: InstallmentData[];
   };
+  const { message, data } = body;
 
   if (!message?.trim()) {
     response.status(400).json({ error: "MISSING_MESSAGE" });

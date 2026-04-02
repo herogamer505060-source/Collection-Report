@@ -1,5 +1,21 @@
 import { analyzePdfWithGemini } from "../../src/server/geminiApi";
 
+function parseJsonBody(request: any) {
+  if (!request || request.body == null) {
+    return {};
+  }
+
+  if (typeof request.body === "string") {
+    try {
+      return JSON.parse(request.body);
+    } catch {
+      return {};
+    }
+  }
+
+  return request.body;
+}
+
 export default async function handler(request: any, response: any) {
   if (request.method !== "POST") {
     response.setHeader("Allow", "POST");
@@ -7,7 +23,7 @@ export default async function handler(request: any, response: any) {
     return;
   }
 
-  const { base64Data } = request.body as { base64Data?: string };
+  const { base64Data } = parseJsonBody(request) as { base64Data?: string };
 
   if (!base64Data) {
     response.status(400).json({ error: "MISSING_BASE64_DATA" });
