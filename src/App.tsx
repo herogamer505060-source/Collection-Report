@@ -11,6 +11,7 @@ import React, {
   Component,
   ErrorInfo,
   ReactNode,
+  useRef,
 } from "react";
 import {
   BarChart,
@@ -51,13 +52,19 @@ import {
   User as UserIcon,
   MessageCircle,
   Trash2,
+  Bot,
+  Send,
 } from "lucide-react";
 import * as XLSX from "xlsx";
 import { useDropzone } from "react-dropzone";
 import { motion, AnimatePresence } from "motion/react";
 import { cn } from "./lib/utils";
 import { InstallmentData, DashboardStats } from "./types";
-import { analyzeCollectionPDF, isAIConfigured } from "./services/geminiService";
+import {
+  analyzeCollectionPDF,
+  getAIStatus,
+  createDataChatSession,
+} from "./services/geminiService";
 import {
   auth,
   db,
@@ -79,6 +86,7 @@ import {
 import { User } from "firebase/auth";
 
 type InstallmentStatus = "commercialPaper" | "paid" | "partial" | "overdue";
+type ChatMessage = { role: "user" | "model"; text: string; timestamp: number };
 
 interface ErrorBoundaryProps {
   children: ReactNode;
@@ -398,7 +406,7 @@ function MainApp() {
   const [data, setData] = useState<InstallmentData[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [isAnalyzing, setIsAnalyzing] = useState(false);
-  const [showAiError, setShowAiError] = useState(!isAIConfigured());
+  const [showAiError, setShowAiError] = useState(false);
   const [searchTerm, setSearchTerm] = useState("");
   const [filterProject, setFilterProject] = useState("الكل");
   const [filterStatus, setFilterStatus] = useState("الكل");
@@ -410,7 +418,83 @@ function MainApp() {
   const [selectedRows, setSelectedRows] = useState<Set<string>>(new Set());
   const [reportNumber] = useState(() => `${Date.now()}`.slice(-5));
 
+  // Chat State
+  const [isChatOpen, setIsChatOpen] = useState(false);
+  const [chatMessages, setChatMessages] = useState<ChatMessage[]>([]);
+  const [chatInput, setChatInput] = useState("");
+  const [isChatLoading, setIsChatLoading] = useState(false);
+  const chatSessionRef = useRef<ReturnType<typeof createDataChatSession> | null>(null);
+  const chatBottomRef = useRef<HTMLDivElement>(null);
+
   const isAdmin = useMemo(() => user?.email === ADMIN_EMAIL, [user]);
+
+  // Handle Chat Send
+  const handleChatSend = useCallback(async () => {
+    if (!chatInput.trim() || isChatLoading || data.length === 0) return;
+
+    const question = chatInput.trim();
+    setChatInput("");
+    setIsChatLoading(true);
+
+    const userMsg: ChatMessage = { role: "user", text: question, timestamp: Date.now() };
+    setChatMessages((prev) => [...prev, userMsg]);
+
+    try {
+      if (!chatSessionRef.current) {
+        chatSessionRef.current = createDataChatSession(data);
+      }
+
+      const result = await chatSessionRef.current.sendMessage({ message: question });
+      const modelMsg: ChatMessage = { role: "model", text: result.text, timestamp: Date.now() };
+      setChatMessages((prev) => [...prev, modelMsg]);
+    } catch (error) {
+      console.error("Chat Error:", error);
+      if (error instanceof Error && error.message === "MISSING_API_KEY") {
+        setShowAiError(true);
+      }
+      const errMsg: ChatMessage = { role: "model", text: "عذراً، حدث خطأ أثناء الاتصال بـ Gemini. يرجى المحاولة مرة أخرى.", timestamp: Date.now() };
+      setChatMessages((prev) => [...prev, errMsg]);
+    } finally {
+      setIsChatLoading(false);
+    }
+  }, [chatInput, isChatLoading, data]);
+
+  const handleChatClear = useCallback(() => {
+    chatSessionRef.current = null;
+    setChatMessages([]);
+    setChatInput("");
+  }, []);
+
+  // Effects
+  useEffect(() => {
+    if (isChatOpen) {
+      chatBottomRef.current?.scrollIntoView({ behavior: "smooth" });
+    }
+  }, [chatMessages, isChatLoading, isChatOpen]);
+
+  useEffect(() => {
+    let isMounted = true;
+
+    getAIStatus()
+      .then((configured) => {
+        if (isMounted) {
+          setShowAiError(!configured);
+        }
+      })
+      .catch(() => {
+        if (isMounted) {
+          setShowAiError(true);
+        }
+      });
+
+    return () => {
+      isMounted = false;
+    };
+  }, []);
+
+  useEffect(() => {
+    chatSessionRef.current = null;
+  }, [data]);
 
   // Auth Listener
   useEffect(() => {
@@ -775,9 +859,6 @@ function MainApp() {
       } else {
         setIsAnalyzing(true);
         try {
-          if (!isAIConfigured()) {
-            throw new Error("MISSING_API_KEY");
-          }
           const reader = new FileReader();
           const fileData = await new Promise<string>((resolve, reject) => {
             reader.onload = () => resolve(reader.result as string);
@@ -2381,5 +2462,158 @@ function KpiCard({
         )}
       </div>
     </motion.div>
+  );
+}
+
+function GeminiChatPanel({
+  isOpen,
+  onToggle,
+  messages,
+  input,
+  onInputChange,
+  onSend,
+  isLoading,
+  onClear,
+  hasData,
+  chatBottomRef,
+}: {
+  isOpen: boolean;
+  onToggle: () => void;
+  messages: ChatMessage[];
+  input: string;
+  onInputChange: (val: string) => void;
+  onSend: () => void;
+  isLoading: boolean;
+  onClear: () => void;
+  hasData: boolean;
+  chatBottomRef: React.RefObject<HTMLDivElement | null>;
+}) {
+  return (
+    <>
+      {/* Floating Trigger */}
+      <button
+        onClick={onToggle}
+        className={cn(
+          "fixed bottom-6 left-6 z-[51] w-14 h-14 rounded-full shadow-2xl flex items-center justify-center transition-all active:scale-90 print:hidden",
+          isOpen ? "bg-slate-800 text-white rotate-90" : "bg-indigo-600 text-white hover:bg-indigo-700 hover:scale-110"
+        )}
+      >
+        {isOpen ? <X size={24} /> : <Bot size={28} />}
+      </button>
+
+      {/* Chat Drawer */}
+      <AnimatePresence>
+        {isOpen && (
+          <motion.div
+            initial={{ opacity: 0, y: 20, scale: 0.95, x: -20 }}
+            animate={{ opacity: 1, y: 0, scale: 1, x: 0 }}
+            exit={{ opacity: 0, y: 20, scale: 0.95, x: -20 }}
+            transition={{ type: "spring", damping: 25, stiffness: 300 }}
+            className="fixed bottom-24 left-6 z-50 w-96 max-h-[70vh] bg-white rounded-3xl shadow-2xl border border-slate-200 flex flex-col overflow-hidden print:hidden"
+          >
+            {/* Header */}
+            <div className="p-4 bg-slate-50 border-b border-slate-100 flex items-center justify-between">
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 rounded-xl bg-indigo-600 flex items-center justify-center text-white">
+                  <Bot size={20} />
+                </div>
+                <div>
+                  <h4 className="text-sm font-black text-slate-900 leading-none">مساعد البيانات الذكي</h4>
+                  <span className="text-[10px] text-emerald-500 font-bold">بواسطة Gemini 2.0 Flash</span>
+                </div>
+              </div>
+              <div className="flex items-center gap-1">
+                <button
+                  onClick={onClear}
+                  className="p-2 text-slate-400 hover:text-rose-500 hover:bg-rose-50 rounded-lg transition-all"
+                  title="مسح المحادثة"
+                >
+                  <Trash2 size={16} />
+                </button>
+                <button
+                  onClick={onToggle}
+                  className="p-2 text-slate-400 hover:text-slate-600 hover:bg-slate-100 rounded-lg transition-all"
+                >
+                  <X size={16} />
+                </button>
+              </div>
+            </div>
+
+            {/* Messages Area */}
+            <div className="flex-1 overflow-y-auto p-4 space-y-4 min-h-[300px] bg-slate-50/30 custom-scrollbar">
+              {messages.length === 0 && (
+                <div className="h-full flex flex-col items-center justify-center text-center p-8 space-y-3">
+                  <div className="w-16 h-16 rounded-full bg-indigo-50 flex items-center justify-center text-indigo-400">
+                    <Bot size={32} />
+                  </div>
+                  <p className="text-sm font-bold text-slate-500 uppercase tracking-wider">كيف يمكنني مساعدتك اليوم؟</p>
+                  <p className="text-xs text-slate-400 leading-relaxed italic">يمكنك سؤالي عن إجمالي الأقساط، العملاء المتأخرين، أو توزيع المشاريع.</p>
+                </div>
+              )}
+              
+              {messages.map((msg, i) => (
+                <div
+                  key={msg.timestamp + i}
+                  className={cn(
+                    "flex w-full",
+                    msg.role === "user" ? "justify-start" : "justify-end"
+                  )}
+                >
+                  <div
+                    className={cn(
+                      "max-w-[85%] px-4 py-3 rounded-2xl text-sm leading-relaxed shadow-sm",
+                      msg.role === "user"
+                        ? "bg-indigo-600 text-white rounded-tr-none font-medium"
+                        : "bg-white text-slate-800 border border-slate-100 rounded-tl-none font-bold"
+                    )}
+                  >
+                    {msg.text}
+                  </div>
+                </div>
+              ))}
+              
+              {isLoading && (
+                <div className="flex justify-end">
+                  <div className="bg-white border border-slate-100 px-4 py-3 rounded-2xl rounded-tl-none flex items-center gap-1 shadow-sm">
+                    <div className="w-1.5 h-1.5 bg-indigo-600 rounded-full animate-bounce [animation-delay:-0.3s]" />
+                    <div className="w-1.5 h-1.5 bg-indigo-600 rounded-full animate-bounce [animation-delay:-0.15s]" />
+                    <div className="w-1.5 h-1.5 bg-indigo-600 rounded-full animate-bounce" />
+                  </div>
+                </div>
+              )}
+              <div ref={chatBottomRef} />
+            </div>
+
+            {/* Input Area */}
+            <div className="p-4 bg-white border-t border-slate-100">
+              {!hasData && (
+                <div className="mb-3 px-3 py-2 bg-amber-50 border border-amber-100 rounded-xl flex items-center gap-2 text-amber-700">
+                  <AlertCircle size={14} />
+                  <span className="text-[10px] font-bold">لا توجد بيانات حالياً للإجابة على استفساراتك.</span>
+                </div>
+              )}
+              <div className="relative flex items-center gap-2">
+                <input
+                  type="text"
+                  placeholder={hasData ? "اسألني أي شيء عن البيانات..." : "برجاء تحميل بيانات أولاً"}
+                  disabled={!hasData || isLoading}
+                  value={input}
+                  onChange={(e) => onInputChange(e.target.value)}
+                  onKeyDown={(e) => e.key === "Enter" && onSend()}
+                  className="flex-1 bg-slate-50 border border-slate-200 rounded-xl px-4 py-3 pr-4 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500/20 disabled:opacity-50 transition-all font-bold placeholder:font-medium"
+                />
+                <button
+                  onClick={onSend}
+                  disabled={!input.trim() || isLoading || !hasData}
+                  className="w-11 h-11 bg-indigo-600 text-white rounded-xl flex items-center justify-center hover:bg-indigo-700 disabled:bg-slate-200 disabled:text-slate-400 transition-all active:scale-95 shadow-lg shadow-indigo-100"
+                >
+                  {isLoading ? <Loader2 size={18} className="animate-spin" /> : <Send size={18} />}
+                </button>
+              </div>
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+    </>
   );
 }
