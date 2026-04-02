@@ -46,7 +46,7 @@ export function buildSystemPrompt(data: InstallmentData[]): string {
   const header =
     "العميل|المشروع|الوحدة|تاريخ_القسط|صافي_القيمة|المحصل|المتبقي|الورقة_التجارية|ملاحظات";
   const rows = data
-    .slice(0, 400)
+    .slice(0, 200)
     .map(
       (item) =>
         `${item.customer}|${item.project}|${item.unitCode}|${item.date}|${item.netValue}|${item.collected}|${item.remaining}|${item.commercialPaper || ""}|${item.notes || ""}`,
@@ -165,13 +165,31 @@ export async function chatWithGemini(
   data: InstallmentData[],
 ) {
   const ai = await getAI();
-  const result = await ai.models.generateContent({
-    model: "gemini-2.0-flash",
-    contents: message,
-    config: {
-      systemInstruction: buildSystemPrompt(data),
-    },
-  });
+  const models = ["gemini-2.5-flash", "gemini-2.0-flash", "gemini-1.5-flash"];
+  let lastError: unknown;
 
-  return result.text || "";
+  for (const model of models) {
+    try {
+      const result = await ai.models.generateContent({
+        model,
+        contents: [
+          {
+            role: "user",
+            parts: [{ text: message }],
+          },
+        ],
+        config: {
+          systemInstruction: buildSystemPrompt(data),
+        },
+      });
+
+      return result.text || "";
+    } catch (error) {
+      lastError = error;
+    }
+  }
+
+  throw lastError instanceof Error
+    ? lastError
+    : new Error("GEMINI_CHAT_REQUEST_FAILED");
 }

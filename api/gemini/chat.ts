@@ -33,6 +33,11 @@ export default async function handler(request: any, response: any) {
     }
 
     console.error("Gemini chat error", error);
-    response.status(500).json({ error: "GEMINI_REQUEST_FAILED" });
+    response.status(500).json({
+      error:
+        error instanceof Error && error.message
+          ? error.message
+          : "GEMINI_REQUEST_FAILED",
+    });
   }
 }

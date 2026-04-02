@@ -452,7 +452,11 @@ function MainApp() {
       if (error instanceof Error && error.message === "MISSING_API_KEY") {
         setShowAiError(true);
       }
-      const errMsg: ChatMessage = { role: "model", text: "عذراً، حدث خطأ أثناء الاتصال بـ Gemini. يرجى المحاولة مرة أخرى.", timestamp: Date.now() };
+      const errorText =
+        error instanceof Error && error.message !== "GEMINI_REQUEST_FAILED"
+          ? `عذراً، حدث خطأ أثناء الاتصال بـ Gemini: ${error.message}`
+          : "عذراً، حدث خطأ أثناء الاتصال بـ Gemini. يرجى المحاولة مرة أخرى.";
+      const errMsg: ChatMessage = { role: "model", text: errorText, timestamp: Date.now() };
       setChatMessages((prev) => [...prev, errMsg]);
     } finally {
       setIsChatLoading(false);
