@@ -1353,8 +1353,8 @@ function MainApp() {
         chatBottomRef={chatBottomRef}
       />
 
-      {/* Print-only Sections (Always Rendered but hidden on screen) */}
-      <div className="hidden print:block">
+      {/* Print-only sections stay mounted off-screen so Recharts can render before print */}
+      <div className="print-render-root" aria-hidden="true">
         {/* Print-only First Page (KPIs + Charts) */}
         <div
           className="print:break-after-page"

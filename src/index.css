@@ -11,6 +11,16 @@
   }
 }
 
+.print-render-root {
+  position: absolute;
+  left: -99999px;
+  top: 0;
+  width: 1120px;
+  visibility: hidden;
+  pointer-events: none;
+  overflow: hidden;
+}
+
 @media print {
   @page {
     margin: 0.5cm;
@@ -34,6 +44,17 @@
   }
   
   .print\:block {
+    display: block !important;
+  }
+
+  .print-render-root {
+    position: static !important;
+    left: auto !important;
+    top: auto !important;
+    width: auto !important;
+    visibility: visible !important;
+    pointer-events: auto !important;
+    overflow: visible !important;
     display: block !important;
   }
 
