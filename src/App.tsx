@@ -1336,6 +1336,19 @@ function MainApp() {
         )}
       </main>
 
+      <GeminiChatPanel
+        isOpen={isChatOpen}
+        onToggle={() => setIsChatOpen((prev) => !prev)}
+        messages={chatMessages}
+        input={chatInput}
+        onInputChange={setChatInput}
+        onSend={handleChatSend}
+        isLoading={isChatLoading}
+        onClear={handleChatClear}
+        hasData={data.length > 0}
+        chatBottomRef={chatBottomRef}
+      />
+
       {/* Print-only Sections (Always Rendered but hidden on screen) */}
       <div className="hidden print:block">
         {/* Print-only First Page (KPIs + Charts) */}
