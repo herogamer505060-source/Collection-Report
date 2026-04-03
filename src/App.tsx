@@ -89,6 +89,14 @@ import { User } from "firebase/auth";
 type InstallmentStatus = "commercialPaper" | "paid" | "partial" | "overdue";
 type ChatMessage = { role: "user" | "model"; text: string; timestamp: number };
 
+interface WhatsAppTemplate {
+  id: string;
+  name: string;
+  content: string;
+  isDefault: boolean;
+  createdAt: string;
+}
+
 interface ErrorBoundaryProps {
   children: ReactNode;
 }
@@ -139,6 +147,7 @@ interface DashboardViewProps {
   ) => Promise<void>;
   selectedRows: Set<string>;
   setSelectedRows: StateSetter<Set<string>>;
+  openWhatsApp: (item: InstallmentData) => void;
 }
 
 interface ReportsViewProps {
@@ -147,6 +156,14 @@ interface ReportsViewProps {
   handlePrint: () => void;
   handleExportExcel: () => void;
   isAdmin: boolean;
+}
+
+interface TemplatesViewProps {
+  templates: WhatsAppTemplate[];
+  activeTemplateId: string;
+  data: InstallmentData[];
+  isAdmin: boolean;
+  onSaveTemplates: (templates: WhatsAppTemplate[]) => Promise<void>;
 }
 
 const INSTALLMENT_STATUS_META: Record<
@@ -311,6 +328,104 @@ const SAMPLE_DATA: InstallmentData[] = [
 ];
 
 const ADMIN_EMAIL = "hero.gamer505060@gmail.com";
+const DEFAULT_TEMPLATE_CREATED_AT = new Date().toISOString();
+const DEFAULT_TEMPLATES: WhatsAppTemplate[] = [
+  {
+    id: "reminder",
+    name: "تذكير بالسداد",
+    content:
+      "السلام عليكم ورحمة الله وبركاته\n" +
+      "عزيزنا {{customer}}،\n" +
+      "نود تذكيركم بموعد سداد قسطكم:\n" +
+      "🏢 المشروع: {{project}}\n" +
+      "🏠 الوحدة: {{unitCode}}\n" +
+      "📅 تاريخ القسط: {{date}}\n" +
+      "💰 صافي القيمة: {{netValue}}\n" +
+      "✅ المحصل: {{collected}}\n" +
+      "💳 المتبقي: {{remaining}}\n\n" +
+      "شركة الحصري للتطوير العقاري",
+    isDefault: true,
+    createdAt: DEFAULT_TEMPLATE_CREATED_AT,
+  },
+  {
+    id: "overdue",
+    name: "تنبيه تأخر السداد",
+    content:
+      "عزيزنا {{customer}}،\n" +
+      "نُعلمكم بأن قسطكم في مشروع {{project}} - وحدة {{unitCode}}\n" +
+      "قد تأخر عن موعد استحقاقه بتاريخ {{date}}.\n" +
+      "💳 المبلغ المتبقي: {{remaining}}\n" +
+      "يرجى التواصل معنا لتسوية الأمر في أقرب وقت.\n" +
+      "شركة الحصري للتطوير العقاري",
+    isDefault: false,
+    createdAt: DEFAULT_TEMPLATE_CREATED_AT,
+  },
+  {
+    id: "penalty",
+    name: "إشعار غرامة تأخير",
+    content:
+      "عزيزنا {{customer}}،\n" +
+      "نُحيطكم علمًا بأن قسطكم - {{project}} / {{unitCode}}\n" +
+      "متأخر منذ {{date}} والمبلغ المتبقي {{remaining}}.\n" +
+      "⚠️ سيتم تطبيق غرامة التأخير وفق شروط العقد.\n" +
+      "للتسوية تواصل معنا فورًا.\n" +
+      "شركة الحصري للتطوير العقاري",
+    isDefault: false,
+    createdAt: DEFAULT_TEMPLATE_CREATED_AT,
+  },
+];
+const TEMPLATE_VARIABLES = [
+  "{{customer}}",
+  "{{project}}",
+  "{{unitCode}}",
+  "{{date}}",
+  "{{netValue}}",
+  "{{collected}}",
+  "{{remaining}}",
+] as const;
+const TEMPLATE_TOKEN_REGEX = /\{\{(\w+)\}\}/g;
+
+function getDefaultTemplateId(templates: WhatsAppTemplate[]): string {
+  return templates.find((template) => template.isDefault)?.id ?? templates[0]?.id ?? "";
+}
+
+function sanitizeTemplates(templates: WhatsAppTemplate[]): WhatsAppTemplate[] {
+  if (templates.length === 0) return [];
+
+  const defaultId = getDefaultTemplateId(templates);
+  return templates.map((template, index) => ({
+    id: template.id,
+    name: template.name.trim() || `قالب ${index + 1}`,
+    content: template.content,
+    isDefault: template.id === defaultId,
+    createdAt: template.createdAt || DEFAULT_TEMPLATE_CREATED_AT,
+  }));
+}
+
+function normalizeTemplates(value: unknown): WhatsAppTemplate[] {
+  if (!Array.isArray(value)) return [];
+
+  return value.reduce<WhatsAppTemplate[]>((result, template, index) => {
+    if (!template || typeof template !== "object") {
+      return result;
+    }
+
+    const candidate = template as Partial<WhatsAppTemplate>;
+    result.push({
+      id: String(candidate.id ?? DEFAULT_TEMPLATES[index]?.id ?? `template-${index + 1}`),
+      name: String(candidate.name ?? DEFAULT_TEMPLATES[index]?.name ?? `قالب ${index + 1}`),
+      content: String(candidate.content ?? DEFAULT_TEMPLATES[index]?.content ?? ""),
+      isDefault: Boolean(candidate.isDefault),
+      createdAt: String(
+        candidate.createdAt ??
+          DEFAULT_TEMPLATES[index]?.createdAt ??
+          DEFAULT_TEMPLATE_CREATED_AT,
+      ),
+    });
+
+    return result;
+  }, []);
+}
 
 const formatCurrency = (val: number) => {
   return new Intl.NumberFormat("en-US", {
@@ -334,6 +449,23 @@ const formatDate = (dateStr: string) => {
   } catch (e) {
     return dateStr;
   }
+};
+
+const interpolateTemplate = (content: string, item: InstallmentData): string => {
+  const templateValues: Record<string, string> = {
+    customer: item.customer,
+    project: item.project,
+    unitCode: item.unitCode,
+    date: formatDate(item.date),
+    netValue: formatCurrency(item.netValue),
+    collected: formatCurrency(item.collected),
+    remaining: formatCurrency(item.remaining),
+  };
+
+  return content.replace(
+    TEMPLATE_TOKEN_REGEX,
+    (match, variable: string) => templateValues[variable] ?? match,
+  );
 };
 
 const getInstallmentStatus = (
@@ -423,11 +555,17 @@ function MainApp() {
   const [filterStatus, setFilterStatus] = useState("الكل");
   const [startDate, setStartDate] = useState("");
   const [endDate, setEndDate] = useState("");
-  const [activeTab, setActiveTab] = useState<"dashboard" | "reports">(
-    "dashboard",
-  );
+  const [activeTab, setActiveTab] = useState<
+    "dashboard" | "reports" | "templates"
+  >("dashboard");
   const [selectedRows, setSelectedRows] = useState<Set<string>>(new Set());
   const [reportNumber] = useState(() => `${Date.now()}`.slice(-5));
+  const [templates, setTemplates] = useState<WhatsAppTemplate[]>(() =>
+    DEFAULT_TEMPLATES.map((template) => ({ ...template })),
+  );
+  const [activeTemplateId, setActiveTemplateId] = useState<string>(
+    getDefaultTemplateId(DEFAULT_TEMPLATES),
+  );
 
   // Chat State
   const [isChatOpen, setIsChatOpen] = useState(false);
@@ -617,6 +755,70 @@ function MainApp() {
     return () => unsubscribe();
   }, [isAuthReady, isAdmin, user]);
 
+  useEffect(() => {
+    if (!isAuthReady) return;
+
+    const templatesRef = doc(db, "settings", "whatsappTemplates");
+    const unsubscribe = onSnapshot(
+      templatesRef,
+      (snapshot) => {
+        const nextTemplates = sanitizeTemplates(
+          normalizeTemplates(snapshot.data()?.templates),
+        );
+
+        if (nextTemplates.length > 0) {
+          setTemplates(nextTemplates);
+          setActiveTemplateId(getDefaultTemplateId(nextTemplates));
+          return;
+        }
+
+        setTemplates(DEFAULT_TEMPLATES.map((template) => ({ ...template })));
+        setActiveTemplateId(getDefaultTemplateId(DEFAULT_TEMPLATES));
+
+        if (isAdmin) {
+          void setDoc(
+            templatesRef,
+            { templates: DEFAULT_TEMPLATES },
+            { merge: true },
+          ).catch((error) => {
+            handleFirestoreError(
+              error,
+              OperationType.WRITE,
+              "settings/whatsappTemplates",
+            );
+          });
+        }
+      },
+      (error) => {
+        handleFirestoreError(error, OperationType.GET, "settings/whatsappTemplates");
+      },
+    );
+
+    return () => unsubscribe();
+  }, [isAdmin, isAuthReady]);
+
+  const handleSaveTemplates = useCallback(
+    async (nextTemplates: WhatsAppTemplate[]) => {
+      const sanitizedTemplates = sanitizeTemplates(nextTemplates);
+      if (!isAdmin || sanitizedTemplates.length === 0) return;
+
+      setTemplates(sanitizedTemplates);
+      setActiveTemplateId(getDefaultTemplateId(sanitizedTemplates));
+
+      try {
+        await setDoc(
+          doc(db, "settings", "whatsappTemplates"),
+          { templates: sanitizedTemplates },
+          { merge: true },
+        );
+      } catch (error) {
+        handleFirestoreError(error, OperationType.WRITE, "settings/whatsappTemplates");
+        throw error;
+      }
+    },
+    [isAdmin],
+  );
+
   const handleLogin = async () => {
     try {
       await signInWithPopup(auth, googleProvider);
@@ -769,6 +971,24 @@ function MainApp() {
       }
     },
     [data, user],
+  );
+
+  const openWhatsApp = useCallback(
+    (item: InstallmentData) => {
+      const phone = item.phone?.replace(/\D/g, "");
+      if (!phone) return;
+
+      const activeTemplate =
+        templates.find((template) => template.id === activeTemplateId) ??
+        templates.find((template) => template.isDefault) ??
+        DEFAULT_TEMPLATES[0];
+      const text = encodeURIComponent(
+        interpolateTemplate(activeTemplate.content, item),
+      );
+
+      window.open(`https://wa.me/${phone}?text=${text}`, "_blank");
+    },
+    [activeTemplateId, templates],
   );
 
   const onDrop = useCallback(
@@ -986,18 +1206,6 @@ function MainApp() {
       if (newData.length > 0) {
         if (user) {
           try {
-            if (isAdmin) {
-              const q = query(
-                collection(db, "installments"),
-                where("uid", "==", "public"),
-              );
-              const snapshot = await getDocs(q);
-              const deletePromises = snapshot.docs.map((doc) =>
-                deleteDoc(doc.ref),
-              );
-              await Promise.all(deletePromises);
-            }
-
             const batchPromises = newData.map((item) => {
               const deterministicId =
                 `${item.customer}_${item.project}_${item.unitCode}_${item.installmentCode}`.replace(
@@ -1005,17 +1213,23 @@ function MainApp() {
                   "_",
                 );
               const docRef = doc(db, "installments", deterministicId);
+              const financialData: Partial<InstallmentData> = { ...item };
+              delete financialData.phone;
+              delete financialData.createdAt;
+              const notes = financialData.notes;
+              delete financialData.notes;
+              const payload: Record<string, unknown> = {
+                ...financialData,
+                id: deterministicId,
+                uid: isAdmin ? "public" : user.uid,
+                updatedAt: new Date().toISOString(),
+              };
 
-              return setDoc(
-                docRef,
-                {
-                  ...item,
-                  id: deterministicId,
-                  uid: isAdmin ? "public" : user.uid,
-                  updatedAt: new Date().toISOString(),
-                },
-                { merge: true },
-              );
+              if (notes?.trim()) {
+                payload.notes = notes;
+              }
+
+              return setDoc(docRef, payload, { merge: true });
             });
             await Promise.all(batchPromises);
           } catch (error) {
@@ -1393,6 +1607,26 @@ function MainApp() {
                 />
               )}
             </button>
+            <button
+              onClick={() => setActiveTab("templates")}
+              className={cn(
+                "pb-4 px-2 font-bold text-sm transition-all relative",
+                activeTab === "templates"
+                  ? "text-indigo-600"
+                  : "text-slate-500 hover:text-slate-700",
+              )}
+            >
+              <div className="flex items-center gap-2">
+                <MessageCircle size={18} />
+                قوالب الرسائل
+              </div>
+              {activeTab === "templates" && (
+                <motion.div
+                  layoutId="activeTab"
+                  className="absolute bottom-0 left-0 right-0 h-0.5 bg-indigo-600"
+                />
+              )}
+            </button>
           </div>
 
           {isAdmin && (
@@ -1509,14 +1743,23 @@ function MainApp() {
             handleUpdatePhone={handleUpdatePhone}
             selectedRows={selectedRows}
             setSelectedRows={setSelectedRows}
+            openWhatsApp={openWhatsApp}
           />
-        ) : (
+        ) : activeTab === "reports" ? (
           <ReportsView
             stats={stats}
             filteredData={filteredData}
             handlePrint={handlePrint}
             handleExportExcel={handleExportExcel}
             isAdmin={isAdmin}
+          />
+        ) : (
+          <TemplatesView
+            templates={templates}
+            activeTemplateId={activeTemplateId}
+            data={data}
+            isAdmin={isAdmin}
+            onSaveTemplates={handleSaveTemplates}
           />
         )}
       </main>
@@ -1853,17 +2096,8 @@ function DashboardView({
   handleUpdatePhone,
   selectedRows,
   setSelectedRows,
+  openWhatsApp,
 }: DashboardViewProps) {
-  const buildWhatsAppMessage = (item: InstallmentData) =>
-    `السلام عليكم ورحمة الله وبركاته\nعزيزنا ${item.customer}،\nنود تذكيركم بموعد سداد قسطكم:\n🏢 المشروع: ${item.project}\n🏠 الوحدة: ${item.unitCode}\n📅 تاريخ القسط: ${formatDate(item.date)}\n💰 صافي القيمة: ${formatCurrency(item.netValue)}\n✅ المحصل: ${formatCurrency(item.collected)}\n💳 المتبقي: ${formatCurrency(item.remaining)}\n\nشركة الحصري للتطوير العقاري`;
-
-  const openWhatsApp = (item: InstallmentData) => {
-    const phone = item.phone?.replace(/\D/g, "");
-    if (!phone) return;
-    const text = encodeURIComponent(buildWhatsAppMessage(item));
-    window.open(`https://wa.me/${phone}?text=${text}`, "_blank");
-  };
-
   const toggleRow = (key: string) => {
     setSelectedRows((prev: Set<string>) => {
       const next = new Set(prev);
@@ -2800,6 +3034,372 @@ function ReportsView({
               })}
             </tbody>
           </table>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function TemplatesView({
+  templates,
+  activeTemplateId,
+  data,
+  isAdmin,
+  onSaveTemplates,
+}: TemplatesViewProps) {
+  const [localTemplates, setLocalTemplates] = useState<WhatsAppTemplate[]>(() =>
+    templates.map((template) => ({ ...template })),
+  );
+  const [selectedId, setSelectedId] = useState<string>(activeTemplateId);
+  const [editName, setEditName] = useState("");
+  const [editContent, setEditContent] = useState("");
+  const [isDirty, setIsDirty] = useState(false);
+
+  useEffect(() => {
+    setLocalTemplates(templates.map((template) => ({ ...template })));
+  }, [templates]);
+
+  useEffect(() => {
+    if (localTemplates.length === 0) {
+      setSelectedId("");
+      return;
+    }
+
+    if (!localTemplates.some((template) => template.id === selectedId)) {
+      const fallbackId =
+        localTemplates.find((template) => template.id === activeTemplateId)?.id ??
+        localTemplates[0].id;
+      setSelectedId(fallbackId);
+    }
+  }, [activeTemplateId, localTemplates, selectedId]);
+
+  const selectedTemplate = useMemo(
+    () =>
+      localTemplates.find((template) => template.id === selectedId) ??
+      localTemplates[0] ??
+      null,
+    [localTemplates, selectedId],
+  );
+  const previewItem = data[0] ?? SAMPLE_DATA[0];
+  const previewText = selectedTemplate
+    ? interpolateTemplate(editContent, previewItem)
+    : "";
+
+  useEffect(() => {
+    if (!selectedTemplate) {
+      setEditName("");
+      setEditContent("");
+      setIsDirty(false);
+      return;
+    }
+
+    setEditName(selectedTemplate.name);
+    setEditContent(selectedTemplate.content);
+    setIsDirty(false);
+  }, [selectedTemplate?.content, selectedTemplate?.id, selectedTemplate?.name]);
+
+  const applyEditorToSelected = (sourceTemplates: WhatsAppTemplate[]) =>
+    sourceTemplates.map((template) =>
+      template.id === selectedId
+        ? {
+            ...template,
+            name: editName.trim() || template.name || "بدون اسم",
+            content: editContent,
+          }
+        : template,
+    );
+
+  const handleSelectTemplate = (templateId: string) => {
+    if (templateId === selectedId) return;
+    if (
+      isDirty &&
+      !window.confirm("لديك تغييرات غير محفوظة. هل تريد تجاهلها والانتقال؟")
+    ) {
+      return;
+    }
+
+    setSelectedId(templateId);
+  };
+
+  const handleAddTemplate = () => {
+    if (!isAdmin) return;
+
+    const newTemplate: WhatsAppTemplate = {
+      id: `template-${Date.now()}`,
+      name: "قالب جديد",
+      content: "",
+      isDefault: false,
+      createdAt: new Date().toISOString(),
+    };
+
+    setLocalTemplates((prev) => [...prev, newTemplate]);
+    setSelectedId(newTemplate.id);
+    setEditName(newTemplate.name);
+    setEditContent(newTemplate.content);
+    setIsDirty(true);
+  };
+
+  const handleSave = async () => {
+    if (!selectedTemplate || !isAdmin) return;
+
+    const nextTemplates = sanitizeTemplates(applyEditorToSelected(localTemplates));
+    setLocalTemplates(nextTemplates);
+    await onSaveTemplates(nextTemplates);
+    setIsDirty(false);
+  };
+
+  const handleDelete = async () => {
+    if (!selectedTemplate || !isAdmin || localTemplates.length === 1) return;
+    if (!window.confirm("هل تريد حذف هذا القالب؟")) return;
+
+    let nextTemplates = localTemplates.filter(
+      (template) => template.id !== selectedTemplate.id,
+    );
+
+    if (selectedTemplate.isDefault && nextTemplates.length > 0) {
+      const fallbackId = nextTemplates[0].id;
+      nextTemplates = nextTemplates.map((template) => ({
+        ...template,
+        isDefault: template.id === fallbackId,
+      }));
+    }
+
+    const sanitizedTemplates = sanitizeTemplates(nextTemplates);
+    const nextSelectedId =
+      sanitizedTemplates.find((template) => template.id === activeTemplateId)?.id ??
+      getDefaultTemplateId(sanitizedTemplates);
+
+    setLocalTemplates(sanitizedTemplates);
+    setSelectedId(nextSelectedId);
+    await onSaveTemplates(sanitizedTemplates);
+    setIsDirty(false);
+  };
+
+  const handleSetDefault = async () => {
+    if (!selectedTemplate || !isAdmin) return;
+
+    const nextTemplates = sanitizeTemplates(
+      applyEditorToSelected(localTemplates).map((template) => ({
+        ...template,
+        isDefault: template.id === selectedTemplate.id,
+      })),
+    );
+
+    setLocalTemplates(nextTemplates);
+    await onSaveTemplates(nextTemplates);
+    setIsDirty(false);
+  };
+
+  return (
+    <div className="space-y-6 pb-12" dir="rtl">
+      <div className="card-ledger overflow-hidden bg-white">
+        <div className="flex flex-col gap-4 border-b border-slate-100 px-6 py-6 md:flex-row md:items-center md:justify-between">
+          <div>
+            <h2 className="text-2xl font-black text-slate-900">
+              قوالب رسائل الواتساب
+            </h2>
+            <p className="mt-2 text-sm text-slate-500">
+              اختر القالب الافتراضي الذي يُستخدم عند إرسال الرسائل من الجدول.
+            </p>
+          </div>
+          <button
+            type="button"
+            onClick={handleAddTemplate}
+            disabled={!isAdmin}
+            className={cn(
+              "rounded-2xl px-4 py-3 text-sm font-bold transition-all",
+              isAdmin
+                ? "bg-indigo-600 text-white hover:bg-indigo-700"
+                : "cursor-not-allowed bg-slate-100 text-slate-400",
+            )}
+          >
+            + إضافة قالب
+          </button>
+        </div>
+
+        <div className="grid grid-cols-1 xl:grid-cols-[320px_minmax(0,1fr)]">
+          <aside className="border-l border-slate-100 bg-slate-50/60 p-4">
+            <div className="space-y-3">
+              {localTemplates.map((template) => (
+                <button
+                  key={template.id}
+                  type="button"
+                  onClick={() => handleSelectTemplate(template.id)}
+                  className={cn(
+                    "w-full rounded-2xl border p-4 text-right transition-all",
+                    template.id === selectedTemplate?.id
+                      ? "border-indigo-300 bg-white shadow-sm"
+                      : "border-transparent bg-white/70 hover:border-slate-200 hover:bg-white",
+                  )}
+                >
+                  <div className="flex items-center justify-between gap-3">
+                    <span className="text-sm font-bold text-slate-800">
+                      {template.name}
+                    </span>
+                    {template.isDefault && (
+                      <span className="rounded-full bg-emerald-100 px-2 py-1 text-[10px] font-black text-emerald-700">
+                        افتراضي
+                      </span>
+                    )}
+                  </div>
+                  <p className="mt-2 max-h-16 overflow-hidden whitespace-pre-wrap text-xs text-slate-500">
+                    {template.content || "بدون محتوى بعد"}
+                  </p>
+                </button>
+              ))}
+            </div>
+          </aside>
+
+          <div className="space-y-6 p-6">
+            {!isAdmin && (
+              <div className="rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-700">
+                التعديل والحفظ متاحان للمسؤول فقط. يمكنك معاينة القوالب الحالية فقط.
+              </div>
+            )}
+
+            <div className="grid gap-6 lg:grid-cols-[minmax(0,1fr)_280px]">
+              <div className="space-y-5">
+                <div>
+                  <label className="mb-2 block text-sm font-bold text-slate-700">
+                    اسم القالب
+                  </label>
+                  <input
+                    type="text"
+                    value={editName}
+                    readOnly={!isAdmin || !selectedTemplate}
+                    onChange={(event) => {
+                      setEditName(event.target.value);
+                      setIsDirty(true);
+                    }}
+                    className="w-full rounded-2xl border border-slate-200 px-4 py-3 text-sm text-slate-800 outline-none transition-colors focus:border-indigo-500"
+                    placeholder="اسم القالب"
+                  />
+                </div>
+
+                <div>
+                  <span className="mb-2 block text-sm font-bold text-slate-700">
+                    المتغيرات المتاحة
+                  </span>
+                  <div className="flex flex-wrap gap-2">
+                    {TEMPLATE_VARIABLES.map((variable) => (
+                      <span
+                        key={variable}
+                        className="rounded-full bg-slate-100 px-3 py-1 text-xs font-mono text-slate-600"
+                      >
+                        {variable}
+                      </span>
+                    ))}
+                  </div>
+                </div>
+
+                <div>
+                  <label className="mb-2 block text-sm font-bold text-slate-700">
+                    نص الرسالة
+                  </label>
+                  <textarea
+                    value={editContent}
+                    readOnly={!isAdmin || !selectedTemplate}
+                    onChange={(event) => {
+                      setEditContent(event.target.value);
+                      setIsDirty(true);
+                    }}
+                    rows={12}
+                    className="w-full rounded-3xl border border-slate-200 px-4 py-4 text-sm leading-7 text-slate-800 outline-none transition-colors focus:border-indigo-500"
+                    placeholder="اكتب نص الرسالة باستخدام المتغيرات المتاحة..."
+                  />
+                </div>
+              </div>
+
+              <div className="rounded-3xl border border-slate-200 bg-slate-50 p-5">
+                <h3 className="text-sm font-black text-slate-800">بيانات المعاينة</h3>
+                <div className="mt-4 space-y-2 text-sm text-slate-600">
+                  <p>
+                    <span className="font-bold text-slate-800">العميل:</span>{" "}
+                    {previewItem.customer}
+                  </p>
+                  <p>
+                    <span className="font-bold text-slate-800">المشروع:</span>{" "}
+                    {previewItem.project}
+                  </p>
+                  <p>
+                    <span className="font-bold text-slate-800">الوحدة:</span>{" "}
+                    {previewItem.unitCode}
+                  </p>
+                  <p>
+                    <span className="font-bold text-slate-800">المتبقي:</span>{" "}
+                    {formatCurrency(previewItem.remaining)}
+                  </p>
+                </div>
+              </div>
+            </div>
+
+            <div className="rounded-3xl border border-slate-200 bg-white p-5">
+              <div className="mb-3 flex items-center justify-between gap-3">
+                <h3 className="text-sm font-black text-slate-800">المعاينة المباشرة</h3>
+                {selectedTemplate?.isDefault && (
+                  <span className="rounded-full bg-emerald-100 px-3 py-1 text-[10px] font-black text-emerald-700">
+                    القالب الافتراضي الحالي
+                  </span>
+                )}
+              </div>
+              <div className="rounded-2xl bg-slate-50 px-4 py-4 text-sm leading-7 text-slate-700 whitespace-pre-wrap">
+                {previewText || "ستظهر معاينة الرسالة هنا بمجرد كتابة محتوى القالب."}
+              </div>
+            </div>
+
+            <div className="flex flex-wrap items-center gap-3">
+              <button
+                type="button"
+                onClick={() => {
+                  void handleSetDefault();
+                }}
+                disabled={!isAdmin || !selectedTemplate}
+                className={cn(
+                  "rounded-2xl px-4 py-3 text-sm font-bold transition-all",
+                  isAdmin && selectedTemplate
+                    ? "bg-emerald-500 text-white hover:bg-emerald-600"
+                    : "cursor-not-allowed bg-slate-100 text-slate-400",
+                )}
+              >
+                تعيين كافتراضي
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  void handleDelete();
+                }}
+                disabled={!isAdmin || localTemplates.length === 1 || !selectedTemplate}
+                className={cn(
+                  "rounded-2xl px-4 py-3 text-sm font-bold transition-all",
+                  isAdmin && localTemplates.length > 1 && selectedTemplate
+                    ? "bg-rose-500 text-white hover:bg-rose-600"
+                    : "cursor-not-allowed bg-slate-100 text-slate-400",
+                )}
+              >
+                حذف
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  void handleSave();
+                }}
+                disabled={!isAdmin || !selectedTemplate || !isDirty}
+                className={cn(
+                  "rounded-2xl px-4 py-3 text-sm font-bold transition-all",
+                  isAdmin && selectedTemplate && isDirty
+                    ? "bg-indigo-600 text-white hover:bg-indigo-700"
+                    : "cursor-not-allowed bg-slate-100 text-slate-400",
+                )}
+              >
+                حفظ
+              </button>
+              {isDirty && (
+                <span className="text-xs font-bold text-amber-600">
+                  لديك تغييرات غير محفوظة.
+                </span>
+              )}
+            </div>
+          </div>
         </div>
       </div>
     </div>
