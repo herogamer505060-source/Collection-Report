@@ -1,8 +1,14 @@
 import { InstallmentData } from "../types";
 
+type ChatHistoryEntry = {
+  role: "user" | "model";
+  text: string;
+};
+
 type ChatRequest = {
   message: string;
   data: InstallmentData[];
+  history?: ChatHistoryEntry[];
 };
 
 type GeminiApiError = Error & {
@@ -44,17 +50,21 @@ export async function analyzeCollectionPDF(
 }
 
 export function createDataChatSession(data: InstallmentData[]) {
+  const history: ChatHistoryEntry[] = [];
+
   return {
-    async sendMessage({ message }: ChatRequest) {
+    async sendMessage({ message }: Pick<ChatRequest, "message">) {
       const response = await fetch("/api/gemini/chat", {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
         },
-        body: JSON.stringify({ message, data }),
+        body: JSON.stringify({ message, data, history }),
       });
 
       const payload = await parseApiResponse<{ text: string }>(response);
+      history.push({ role: "user", text: message });
+      history.push({ role: "model", text: payload.text });
       return { text: payload.text };
     },
   };

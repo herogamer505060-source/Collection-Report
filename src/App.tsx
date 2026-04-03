@@ -54,6 +54,7 @@ import {
   Trash2,
   Bot,
   Send,
+  Bell,
 } from "lucide-react";
 import * as XLSX from "xlsx";
 import { useDropzone } from "react-dropzone";
@@ -125,6 +126,11 @@ interface DashboardViewProps {
     customer: string,
     installmentCode: string,
     newNote: string,
+  ) => Promise<void>;
+  handleUpdateCollected: (
+    customer: string,
+    installmentCode: string,
+    val: number,
   ) => Promise<void>;
   handleUpdatePhone: (
     customer: string,
@@ -406,6 +412,7 @@ function MainApp() {
   const [data, setData] = useState<InstallmentData[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [isAnalyzing, setIsAnalyzing] = useState(false);
+  const [isAIConfigured, setIsAIConfigured] = useState(false);
   const [showAiError, setShowAiError] = useState(false);
   const [searchTerm, setSearchTerm] = useState("");
   const [filterProject, setFilterProject] = useState("الكل");
@@ -423,10 +430,29 @@ function MainApp() {
   const [chatMessages, setChatMessages] = useState<ChatMessage[]>([]);
   const [chatInput, setChatInput] = useState("");
   const [isChatLoading, setIsChatLoading] = useState(false);
-  const chatSessionRef = useRef<ReturnType<typeof createDataChatSession> | null>(null);
+  const [showNotifications, setShowNotifications] = useState(false);
+  const chatSessionRef = useRef<ReturnType<typeof createDataChatSession> | null>(
+    null,
+  );
   const chatBottomRef = useRef<HTMLDivElement>(null);
+  const notificationsRef = useRef<HTMLDivElement>(null);
 
   const isAdmin = useMemo(() => user?.email === ADMIN_EMAIL, [user]);
+  const today = new Date().toISOString().slice(0, 10);
+  const weekLater = new Date(Date.now() + 7 * 864e5).toISOString().slice(0, 10);
+  const dueToday = useMemo(
+    () => data.filter((item) => item.date === today && item.remaining > 0),
+    [data, today],
+  );
+  const dueSoon = useMemo(
+    () =>
+      data.filter(
+        (item) =>
+          item.date > today && item.date <= weekLater && item.remaining > 0,
+      ),
+    [data, today, weekLater],
+  );
+  const notificationCount = dueToday.length + dueSoon.length;
 
   // Handle Chat Send
   const handleChatSend = useCallback(async () => {
@@ -450,6 +476,7 @@ function MainApp() {
     } catch (error) {
       console.error("Chat Error:", error);
       if (error instanceof Error && error.message === "MISSING_API_KEY") {
+        setIsAIConfigured(false);
         setShowAiError(true);
       }
       const errorText =
@@ -482,11 +509,13 @@ function MainApp() {
     getAIStatus()
       .then((configured) => {
         if (isMounted) {
+          setIsAIConfigured(configured);
           setShowAiError(!configured);
         }
       })
       .catch(() => {
         if (isMounted) {
+          setIsAIConfigured(false);
           setShowAiError(true);
         }
       });
@@ -499,6 +528,18 @@ function MainApp() {
   useEffect(() => {
     chatSessionRef.current = null;
   }, [data]);
+
+  useEffect(() => {
+    if (!showNotifications) return;
+
+    const handleMouseDown = (event: MouseEvent) => {
+      if (notificationsRef.current?.contains(event.target as Node)) return;
+      setShowNotifications(false);
+    };
+
+    document.addEventListener("mousedown", handleMouseDown);
+    return () => document.removeEventListener("mousedown", handleMouseDown);
+  }, [showNotifications]);
 
   // Auth Listener
   useEffect(() => {
@@ -634,6 +675,47 @@ function MainApp() {
             `installments/${item.id}`,
           );
         }
+      }
+    }
+  }, [data, user]);
+
+  const handleUpdateCollected = useCallback(async (
+    customer: string,
+    installmentCode: string,
+    newCollected: number,
+  ) => {
+    const item = data.find(
+      (i) => i.customer === customer && i.installmentCode === installmentCode,
+    );
+    if (!item) return;
+
+    const safeCollected = Number.isFinite(newCollected)
+      ? newCollected
+      : item.collected;
+    const clamped = Math.min(Math.max(0, safeCollected), item.netValue);
+    const newRemaining = item.netValue - clamped;
+
+    setData((prev) =>
+      prev.map((i) =>
+        i.customer === customer && i.installmentCode === installmentCode
+          ? { ...i, collected: clamped, remaining: newRemaining }
+          : i,
+      ),
+    );
+
+    if (user && item.id) {
+      try {
+        await setDoc(
+          doc(db, "installments", item.id),
+          { collected: clamped, remaining: newRemaining },
+          { merge: true },
+        );
+      } catch (error) {
+        handleFirestoreError(
+          error,
+          OperationType.UPDATE,
+          `installments/${item.id}`,
+        );
       }
     }
   }, [data, user]);
@@ -883,6 +965,7 @@ function MainApp() {
           console.error("Error analyzing PDF:", error);
           if (error.message === "MISSING_API_KEY") {
             alert("تنبيه: مفتاح GEMINI_API_KEY غير متوفر.");
+            setIsAIConfigured(false);
             setShowAiError(true);
           } else {
             alert("حدث خطأ أثناء تحليل الملف.");
@@ -1260,8 +1343,10 @@ function MainApp() {
       </header>
 
       {/* Navigation Tabs (Screen Only) */}
-      <nav className="flex gap-4 mb-8 border-b border-slate-200 print:hidden">
-        <button
+      <nav className="mb-8 border-b border-slate-200 print:hidden">
+        <div className="flex items-center justify-between gap-4">
+          <div className="flex gap-4">
+            <button
           onClick={() => setActiveTab("dashboard")}
           className={cn(
             "pb-4 px-2 font-bold text-sm transition-all relative",
@@ -1300,7 +1385,85 @@ function MainApp() {
               className="absolute bottom-0 left-0 right-0 h-0.5 bg-indigo-600"
             />
           )}
-        </button>
+            </button>
+          </div>
+
+          {isAdmin && (
+            <div className="relative pb-3" ref={notificationsRef}>
+              <button
+                onClick={() => setShowNotifications((prev) => !prev)}
+                className="relative rounded-xl p-2 transition-colors hover:bg-slate-100"
+                title="\u0627\u0644\u0625\u0634\u0639\u0627\u0631\u0627\u062A"
+              >
+                <Bell size={20} className="text-slate-600" />
+                {notificationCount > 0 && (
+                  <span className="absolute -top-1 -right-1 flex h-5 w-5 items-center justify-center rounded-full bg-rose-500 text-[10px] font-black text-white">
+                    {notificationCount}
+                  </span>
+                )}
+              </button>
+
+              <AnimatePresence>
+                {showNotifications && (
+                  <motion.div
+                    initial={{ opacity: 0, y: -8, scale: 0.95 }}
+                    animate={{ opacity: 1, y: 0, scale: 1 }}
+                    exit={{ opacity: 0, y: -8, scale: 0.95 }}
+                    className="absolute left-0 top-12 z-50 w-80 overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-2xl"
+                    dir="rtl"
+                  >
+                    <div className="flex items-center justify-between border-b border-slate-100 bg-slate-50 px-4 py-3">
+                      <span className="text-sm font-black text-slate-700">
+                        {"\u0627\u0644\u0625\u0634\u0639\u0627\u0631\u0627\u062A"}
+                      </span>
+                      <button onClick={() => setShowNotifications(false)}>
+                        <X size={16} className="text-slate-400" />
+                      </button>
+                    </div>
+
+                    <div className="max-h-96 overflow-y-auto">
+                      {notificationCount === 0 && (
+                        <p className="py-8 text-center text-sm text-slate-400">
+                          {"\u0644\u0627 \u062A\u0648\u062C\u062F \u0623\u0642\u0633\u0627\u0637 \u0645\u0633\u062A\u062D\u0642\u0629 \u0642\u0631\u064A\u0628\u0627\u064B"}
+                        </p>
+                      )}
+
+                      {dueToday.length > 0 && (
+                        <div>
+                          <div className="border-b border-rose-100 bg-rose-50 px-4 py-2">
+                            <span className="text-xs font-black uppercase tracking-wider text-rose-600">
+                              {"\u0645\u0633\u062A\u062D\u0642 \u0627\u0644\u064A\u0648\u0645"} ({dueToday.length})
+                            </span>
+                          </div>
+                          {dueToday.map((item) => (
+                            <div key={item.id ?? buildInstallmentKey(item)}>
+                              <NotificationItem item={item} />
+                            </div>
+                          ))}
+                        </div>
+                      )}
+
+                      {dueSoon.length > 0 && (
+                        <div>
+                          <div className="border-b border-amber-100 bg-amber-50 px-4 py-2">
+                            <span className="text-xs font-black uppercase tracking-wider text-amber-600">
+                              {"\u0645\u0633\u062A\u062D\u0642 \u062E\u0644\u0627\u0644 7 \u0623\u064A\u0627\u0645"} ({dueSoon.length})
+                            </span>
+                          </div>
+                          {dueSoon.map((item) => (
+                            <div key={item.id ?? buildInstallmentKey(item)}>
+                              <NotificationItem item={item} />
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                  </motion.div>
+                )}
+              </AnimatePresence>
+            </div>
+          )}
+        </div>
       </nav>
 
       {/* Main Content Area */}
@@ -1325,6 +1488,7 @@ function MainApp() {
             filteredData={filteredData}
             totals={totals}
             handleUpdateNote={handleUpdateNote}
+            handleUpdateCollected={handleUpdateCollected}
             handleUpdatePhone={handleUpdatePhone}
             selectedRows={selectedRows}
             setSelectedRows={setSelectedRows}
@@ -1340,18 +1504,20 @@ function MainApp() {
         )}
       </main>
 
-      <GeminiChatPanel
-        isOpen={isChatOpen}
-        onToggle={() => setIsChatOpen((prev) => !prev)}
-        messages={chatMessages}
-        input={chatInput}
-        onInputChange={setChatInput}
-        onSend={handleChatSend}
-        isLoading={isChatLoading}
-        onClear={handleChatClear}
-        hasData={data.length > 0}
-        chatBottomRef={chatBottomRef}
-      />
+      {isAIConfigured && (
+        <GeminiChatPanel
+          isOpen={isChatOpen}
+          onToggle={() => setIsChatOpen((prev) => !prev)}
+          messages={chatMessages}
+          input={chatInput}
+          onInputChange={setChatInput}
+          onSend={handleChatSend}
+          isLoading={isChatLoading}
+          onClear={handleChatClear}
+          hasData={data.length > 0}
+          chatBottomRef={chatBottomRef}
+        />
+      )}
 
       {/* Print-only sections stay mounted off-screen so Recharts can render before print */}
       <div className="print-render-root" aria-hidden="true">
@@ -1662,6 +1828,7 @@ function DashboardView({
   filteredData,
   totals,
   handleUpdateNote,
+  handleUpdateCollected,
   handleUpdatePhone,
   selectedRows,
   setSelectedRows,
@@ -2051,7 +2218,28 @@ function DashboardView({
                         {formatCurrency(item.netValue)}
                       </td>
                       <td className="px-6 py-4 text-emerald-600 font-black text-center">
-                        {formatCurrency(item.collected)}
+                        {isAdmin ? (
+                          <input
+                            type="number"
+                            key={item.id ?? rowKey}
+                            defaultValue={item.collected}
+                            min={0}
+                            max={item.netValue}
+                            onBlur={(e) => {
+                              const value = Number(e.target.value);
+                              if (value !== item.collected) {
+                                handleUpdateCollected(
+                                  item.customer,
+                                  item.installmentCode,
+                                  value,
+                                );
+                              }
+                            }}
+                            className="w-28 border-b border-transparent bg-transparent py-1 text-center font-black text-emerald-600 transition-all group-hover:border-emerald-200 focus:border-emerald-500 focus:outline-none"
+                          />
+                        ) : (
+                          formatCurrency(item.collected)
+                        )}
                       </td>
                       <td className="px-6 py-4 text-rose-600 font-black text-center">
                         {formatCurrency(item.remaining)}
@@ -2479,6 +2667,24 @@ function KpiCard({
         )}
       </div>
     </motion.div>
+  );
+}
+
+function NotificationItem({ item }: { item: InstallmentData }) {
+  return (
+    <div className="border-b border-slate-50 px-4 py-3 transition-colors hover:bg-slate-50">
+      <div className="flex items-center justify-between gap-3">
+        <span className="text-sm font-bold text-slate-800">{item.customer}</span>
+        <span className="text-xs text-slate-400">{item.date}</span>
+      </div>
+      <div className="mt-1 flex items-center gap-2">
+        <span className="text-xs text-slate-500">{item.project}</span>
+        <span className="text-xs text-slate-300">{"\u00B7"}</span>
+        <span className="text-xs font-bold text-rose-600">
+          {"\u0645\u062A\u0628\u0642\u064A:"} {formatCurrency(item.remaining)}
+        </span>
+      </div>
+    </div>
   );
 }
 
