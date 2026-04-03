@@ -373,7 +373,11 @@ const createFallbackInstallmentCode = (
       row["الاسم"] ??
       row["اسم"] ??
       "",
-    row["المشروع"] ?? row["Project"] ?? row["اسم المشروع"] ?? row["مشروع"] ?? "",
+    row["المشروع"] ??
+      row["Project"] ??
+      row["اسم المشروع"] ??
+      row["مشروع"] ??
+      "",
     row["الوحدة"] ??
       row["Unit"] ??
       row["رقم الوحدة"] ??
@@ -431,9 +435,9 @@ function MainApp() {
   const [chatInput, setChatInput] = useState("");
   const [isChatLoading, setIsChatLoading] = useState(false);
   const [showNotifications, setShowNotifications] = useState(false);
-  const chatSessionRef = useRef<ReturnType<typeof createDataChatSession> | null>(
-    null,
-  );
+  const chatSessionRef = useRef<ReturnType<
+    typeof createDataChatSession
+  > | null>(null);
   const chatBottomRef = useRef<HTMLDivElement>(null);
   const notificationsRef = useRef<HTMLDivElement>(null);
 
@@ -462,7 +466,11 @@ function MainApp() {
     setChatInput("");
     setIsChatLoading(true);
 
-    const userMsg: ChatMessage = { role: "user", text: question, timestamp: Date.now() };
+    const userMsg: ChatMessage = {
+      role: "user",
+      text: question,
+      timestamp: Date.now(),
+    };
     setChatMessages((prev) => [...prev, userMsg]);
 
     try {
@@ -470,8 +478,14 @@ function MainApp() {
         chatSessionRef.current = createDataChatSession(data);
       }
 
-      const result = await chatSessionRef.current.sendMessage({ message: question });
-      const modelMsg: ChatMessage = { role: "model", text: result.text, timestamp: Date.now() };
+      const result = await chatSessionRef.current.sendMessage({
+        message: question,
+      });
+      const modelMsg: ChatMessage = {
+        role: "model",
+        text: result.text,
+        timestamp: Date.now(),
+      };
       setChatMessages((prev) => [...prev, modelMsg]);
     } catch (error) {
       console.error("Chat Error:", error);
@@ -483,7 +497,11 @@ function MainApp() {
         error instanceof Error && error.message !== "GEMINI_REQUEST_FAILED"
           ? `عذراً، حدث خطأ أثناء الاتصال بـ Gemini: ${error.message}`
           : "عذراً، حدث خطأ أثناء الاتصال بـ Gemini. يرجى المحاولة مرة أخرى.";
-      const errMsg: ChatMessage = { role: "model", text: errorText, timestamp: Date.now() };
+      const errMsg: ChatMessage = {
+        role: "model",
+        text: errorText,
+        timestamp: Date.now(),
+      };
       setChatMessages((prev) => [...prev, errMsg]);
     } finally {
       setIsChatLoading(false);
@@ -642,30 +660,68 @@ function MainApp() {
     }
   };
 
-  const handleUpdateNote = useCallback(async (
-    customer: string,
-    installmentCode: string,
-    newNote: string,
-  ) => {
-    const item = data.find(
-      (i) => i.customer === customer && i.installmentCode === installmentCode,
-    );
+  const handleUpdateNote = useCallback(
+    async (customer: string, installmentCode: string, newNote: string) => {
+      const item = data.find(
+        (i) => i.customer === customer && i.installmentCode === installmentCode,
+      );
 
-    // Optimistic update
-    setData((prev) =>
-      prev.map((item) =>
-        item.customer === customer && item.installmentCode === installmentCode
-          ? { ...item, notes: newNote }
-          : item,
-      ),
-    );
+      // Optimistic update
+      setData((prev) =>
+        prev.map((item) =>
+          item.customer === customer && item.installmentCode === installmentCode
+            ? { ...item, notes: newNote }
+            : item,
+        ),
+      );
 
-    if (user) {
-      if (item && item.id) {
+      if (user) {
+        if (item && item.id) {
+          try {
+            await setDoc(
+              doc(db, "installments", item.id),
+              { ...item, notes: newNote },
+              { merge: true },
+            );
+          } catch (error) {
+            handleFirestoreError(
+              error,
+              OperationType.UPDATE,
+              `installments/${item.id}`,
+            );
+          }
+        }
+      }
+    },
+    [data, user],
+  );
+
+  const handleUpdateCollected = useCallback(
+    async (customer: string, installmentCode: string, newCollected: number) => {
+      const item = data.find(
+        (i) => i.customer === customer && i.installmentCode === installmentCode,
+      );
+      if (!item) return;
+
+      const safeCollected = Number.isFinite(newCollected)
+        ? newCollected
+        : item.collected;
+      const clamped = Math.min(Math.max(0, safeCollected), item.netValue);
+      const newRemaining = item.netValue - clamped;
+
+      setData((prev) =>
+        prev.map((i) =>
+          i.customer === customer && i.installmentCode === installmentCode
+            ? { ...i, collected: clamped, remaining: newRemaining }
+            : i,
+        ),
+      );
+
+      if (user && item.id) {
         try {
           await setDoc(
             doc(db, "installments", item.id),
-            { ...item, notes: newNote },
+            { collected: clamped, remaining: newRemaining },
             { merge: true },
           );
         } catch (error) {
@@ -676,85 +732,44 @@ function MainApp() {
           );
         }
       }
-    }
-  }, [data, user]);
+    },
+    [data, user],
+  );
 
-  const handleUpdateCollected = useCallback(async (
-    customer: string,
-    installmentCode: string,
-    newCollected: number,
-  ) => {
-    const item = data.find(
-      (i) => i.customer === customer && i.installmentCode === installmentCode,
-    );
-    if (!item) return;
+  const handleUpdatePhone = useCallback(
+    async (customer: string, installmentCode: string, newPhone: string) => {
+      const item = data.find(
+        (i) => i.customer === customer && i.installmentCode === installmentCode,
+      );
 
-    const safeCollected = Number.isFinite(newCollected)
-      ? newCollected
-      : item.collected;
-    const clamped = Math.min(Math.max(0, safeCollected), item.netValue);
-    const newRemaining = item.netValue - clamped;
+      setData((prev) =>
+        prev.map((item) =>
+          item.customer === customer && item.installmentCode === installmentCode
+            ? { ...item, phone: newPhone }
+            : item,
+        ),
+      );
 
-    setData((prev) =>
-      prev.map((i) =>
-        i.customer === customer && i.installmentCode === installmentCode
-          ? { ...i, collected: clamped, remaining: newRemaining }
-          : i,
-      ),
-    );
-
-    if (user && item.id) {
-      try {
-        await setDoc(
-          doc(db, "installments", item.id),
-          { collected: clamped, remaining: newRemaining },
-          { merge: true },
-        );
-      } catch (error) {
-        handleFirestoreError(
-          error,
-          OperationType.UPDATE,
-          `installments/${item.id}`,
-        );
-      }
-    }
-  }, [data, user]);
-
-  const handleUpdatePhone = useCallback(async (
-    customer: string,
-    installmentCode: string,
-    newPhone: string,
-  ) => {
-    const item = data.find(
-      (i) => i.customer === customer && i.installmentCode === installmentCode,
-    );
-
-    setData((prev) =>
-      prev.map((item) =>
-        item.customer === customer && item.installmentCode === installmentCode
-          ? { ...item, phone: newPhone }
-          : item,
-      ),
-    );
-
-    if (user) {
-      if (item && item.id) {
-        try {
-          await setDoc(
-            doc(db, "installments", item.id),
-            { phone: newPhone },
-            { merge: true },
-          );
-        } catch (error) {
-          handleFirestoreError(
-            error,
-            OperationType.UPDATE,
-            `installments/${item.id}`,
-          );
+      if (user) {
+        if (item && item.id) {
+          try {
+            await setDoc(
+              doc(db, "installments", item.id),
+              { phone: newPhone },
+              { merge: true },
+            );
+          } catch (error) {
+            handleFirestoreError(
+              error,
+              OperationType.UPDATE,
+              `installments/${item.id}`,
+            );
+          }
         }
       }
-    }
-  }, [data, user]);
+    },
+    [data, user],
+  );
 
   const onDrop = useCallback(
     async (acceptedFiles: File[]) => {
@@ -785,145 +800,137 @@ function MainApp() {
                 const worksheet = workbook.Sheets[firstSheetName];
                 const jsonData = XLSX.utils.sheet_to_json(worksheet);
 
-                const mappedData: InstallmentData[] = jsonData.map(
-                  (row) => {
-                    const typedRow = row as Record<string, unknown>;
-                    const normalizedRow: Record<string, unknown> = {};
-                    Object.keys(typedRow).forEach((key) => {
-                      normalizedRow[key.trim().toLowerCase()] = typedRow[key];
-                    });
+                const mappedData: InstallmentData[] = jsonData.map((row) => {
+                  const typedRow = row as Record<string, unknown>;
+                  const normalizedRow: Record<string, unknown> = {};
+                  Object.keys(typedRow).forEach((key) => {
+                    normalizedRow[key.trim().toLowerCase()] = typedRow[key];
+                  });
 
-                    const getVal = (keys: string[]) => {
-                      const originalKey = keys.find(
-                        (k) => typedRow[k] !== undefined,
-                      );
-                      if (originalKey) return typedRow[originalKey];
-
-                      const normalizedKey = keys.find(
-                        (k) =>
-                          normalizedRow[k.trim().toLowerCase()] !== undefined,
-                      );
-                      return normalizedKey
-                        ? normalizedRow[normalizedKey.trim().toLowerCase()]
-                        : undefined;
-                    };
-
-                    const value = Number(
-                      getVal(["القيمة", "Value", "قيمة القسط", "قيمة"]) || 0,
+                  const getVal = (keys: string[]) => {
+                    const originalKey = keys.find(
+                      (k) => typedRow[k] !== undefined,
                     );
-                    const collected = Number(
-                      getVal(["المحصل", "Collected", "المسدد", "تم تحصيله"]) ||
-                        0,
+                    if (originalKey) return typedRow[originalKey];
+
+                    const normalizedKey = keys.find(
+                      (k) =>
+                        normalizedRow[k.trim().toLowerCase()] !== undefined,
                     );
-                    const remaining = Number(
-                      getVal(["المتبقي", "Remaining", "الرصيد", "الباقي"]) || 0,
-                    );
+                    return normalizedKey
+                      ? normalizedRow[normalizedKey.trim().toLowerCase()]
+                      : undefined;
+                  };
 
-                    let netValue = Number(
-                      getVal(["صافي القيمة", "Net Value", "الصافي", "صافي"]) ||
-                        0,
-                    );
-                    if (netValue === 0) {
-                      netValue = value > 0 ? value : collected + remaining;
-                    }
+                  const value = Number(
+                    getVal(["القيمة", "Value", "قيمة القسط", "قيمة"]) || 0,
+                  );
+                  const collected = Number(
+                    getVal(["المحصل", "Collected", "المسدد", "تم تحصيله"]) || 0,
+                  );
+                  const remaining = Number(
+                    getVal(["المتبقي", "Remaining", "الرصيد", "الباقي"]) || 0,
+                  );
 
-                    let rawDate = getVal([
-                      "التاريخ",
-                      "Date",
-                      "تاريخ الاستحقاق",
-                      "تاريخ الاستحقاق للاقساط",
-                      "تاريخ القسط",
-                      "موعد السداد",
-                      "تاريخ السداد",
-                      "Due Date",
-                      "Installment Date",
-                    ]);
+                  let netValue = Number(
+                    getVal(["صافي القيمة", "Net Value", "الصافي", "صافي"]) || 0,
+                  );
+                  if (netValue === 0) {
+                    netValue = value > 0 ? value : collected + remaining;
+                  }
 
-                    let formattedDate = "";
-                    if (rawDate instanceof Date) {
-                      formattedDate = rawDate.toISOString().split("T")[0];
-                    } else if (typeof rawDate === "number") {
-                      const date = new Date((rawDate - 25569) * 86400 * 1000);
-                      formattedDate = date.toISOString().split("T")[0];
-                    } else if (
-                      typeof rawDate === "string" &&
-                      rawDate.trim() !== ""
-                    ) {
-                      const d = new Date(rawDate);
-                      formattedDate = !isNaN(d.getTime())
-                        ? d.toISOString().split("T")[0]
-                        : rawDate;
-                    } else {
-                      formattedDate = String(rawDate || "");
-                    }
+                  let rawDate = getVal([
+                    "التاريخ",
+                    "Date",
+                    "تاريخ الاستحقاق",
+                    "تاريخ الاستحقاق للاقساط",
+                    "تاريخ القسط",
+                    "موعد السداد",
+                    "تاريخ السداد",
+                    "Due Date",
+                    "Installment Date",
+                  ]);
 
-                    const fallbackInstallmentCode = createFallbackInstallmentCode(
-                      typedRow,
-                      formattedDate,
-                      value,
-                      netValue,
-                      collected,
-                      remaining,
-                    );
+                  let formattedDate = "";
+                  if (rawDate instanceof Date) {
+                    formattedDate = rawDate.toISOString().split("T")[0];
+                  } else if (typeof rawDate === "number") {
+                    const date = new Date((rawDate - 25569) * 86400 * 1000);
+                    formattedDate = date.toISOString().split("T")[0];
+                  } else if (
+                    typeof rawDate === "string" &&
+                    rawDate.trim() !== ""
+                  ) {
+                    const d = new Date(rawDate);
+                    formattedDate = !isNaN(d.getTime())
+                      ? d.toISOString().split("T")[0]
+                      : rawDate;
+                  } else {
+                    formattedDate = String(rawDate || "");
+                  }
 
-                    return {
-                      customer: String(
-                        getVal([
-                          "العميل",
-                          "Customer",
-                          "اسم العميل",
-                          "الاسم",
-                          "اسم",
-                        ]) || "",
-                      ),
-                      project: String(
-                        getVal([
-                          "المشروع",
-                          "Project",
-                          "اسم المشروع",
-                          "مشروع",
-                        ]) || "",
-                      ),
-                      unitCode: String(
-                        getVal([
-                          "الوحدة",
-                          "Unit",
-                          "رقم الوحدة",
-                          "كود الوحدة",
-                          "وحدة",
-                        ]) || "",
-                      ),
-                      type: String(
-                        getVal(["النوع", "Type", "نوع القسط", "نوع"]) || "قسط",
-                      ),
-                      installmentCode: String(
-                        getVal([
-                          "كود القسط",
-                          "Installment Code",
-                          "رقم القسط",
-                          "كود",
-                        ]) || fallbackInstallmentCode,
-                      ),
-                      date: formattedDate,
-                      value,
-                      netValue,
-                      collected,
-                      remaining,
-                      commercialPaper: String(
-                        getVal([
-                          "الورقة التجارية",
-                          "Commercial Paper",
-                          "شيك",
-                          "سند",
-                          "رقم الشيك",
-                        ]) || "",
-                      ),
-                      notes: String(
-                        getVal(["ملاحظات", "Notes", "البيان", "ملاحظة"]) || "",
-                      ),
-                    };
-                  },
-                );
+                  const fallbackInstallmentCode = createFallbackInstallmentCode(
+                    typedRow,
+                    formattedDate,
+                    value,
+                    netValue,
+                    collected,
+                    remaining,
+                  );
+
+                  return {
+                    customer: String(
+                      getVal([
+                        "العميل",
+                        "Customer",
+                        "اسم العميل",
+                        "الاسم",
+                        "اسم",
+                      ]) || "",
+                    ),
+                    project: String(
+                      getVal(["المشروع", "Project", "اسم المشروع", "مشروع"]) ||
+                        "",
+                    ),
+                    unitCode: String(
+                      getVal([
+                        "الوحدة",
+                        "Unit",
+                        "رقم الوحدة",
+                        "كود الوحدة",
+                        "وحدة",
+                      ]) || "",
+                    ),
+                    type: String(
+                      getVal(["النوع", "Type", "نوع القسط", "نوع"]) || "قسط",
+                    ),
+                    installmentCode: String(
+                      getVal([
+                        "كود القسط",
+                        "Installment Code",
+                        "رقم القسط",
+                        "كود",
+                      ]) || fallbackInstallmentCode,
+                    ),
+                    date: formattedDate,
+                    value,
+                    netValue,
+                    collected,
+                    remaining,
+                    commercialPaper: String(
+                      getVal([
+                        "الورقة التجارية",
+                        "Commercial Paper",
+                        "شيك",
+                        "سند",
+                        "رقم الشيك",
+                      ]) || "",
+                    ),
+                    notes: String(
+                      getVal(["ملاحظات", "Notes", "البيان", "ملاحظة"]) || "",
+                    ),
+                  };
+                });
 
                 resolve(mappedData);
               } catch (error) {
@@ -1347,44 +1354,44 @@ function MainApp() {
         <div className="flex items-center justify-between gap-4">
           <div className="flex gap-4">
             <button
-          onClick={() => setActiveTab("dashboard")}
-          className={cn(
-            "pb-4 px-2 font-bold text-sm transition-all relative",
-            activeTab === "dashboard"
-              ? "text-indigo-600"
-              : "text-slate-500 hover:text-slate-700",
-          )}
-        >
-          <div className="flex items-center gap-2">
-            <TrendingUp size={18} />
-            لوحة التحكم
-          </div>
-          {activeTab === "dashboard" && (
-            <motion.div
-              layoutId="activeTab"
-              className="absolute bottom-0 left-0 right-0 h-0.5 bg-indigo-600"
-            />
-          )}
-        </button>
-        <button
-          onClick={() => setActiveTab("reports")}
-          className={cn(
-            "pb-4 px-2 font-bold text-sm transition-all relative",
-            activeTab === "reports"
-              ? "text-indigo-600"
-              : "text-slate-500 hover:text-slate-700",
-          )}
-        >
-          <div className="flex items-center gap-2">
-            <FileSpreadsheet size={18} />
-            التقارير والطباعة
-          </div>
-          {activeTab === "reports" && (
-            <motion.div
-              layoutId="activeTab"
-              className="absolute bottom-0 left-0 right-0 h-0.5 bg-indigo-600"
-            />
-          )}
+              onClick={() => setActiveTab("dashboard")}
+              className={cn(
+                "pb-4 px-2 font-bold text-sm transition-all relative",
+                activeTab === "dashboard"
+                  ? "text-indigo-600"
+                  : "text-slate-500 hover:text-slate-700",
+              )}
+            >
+              <div className="flex items-center gap-2">
+                <TrendingUp size={18} />
+                لوحة التحكم
+              </div>
+              {activeTab === "dashboard" && (
+                <motion.div
+                  layoutId="activeTab"
+                  className="absolute bottom-0 left-0 right-0 h-0.5 bg-indigo-600"
+                />
+              )}
+            </button>
+            <button
+              onClick={() => setActiveTab("reports")}
+              className={cn(
+                "pb-4 px-2 font-bold text-sm transition-all relative",
+                activeTab === "reports"
+                  ? "text-indigo-600"
+                  : "text-slate-500 hover:text-slate-700",
+              )}
+            >
+              <div className="flex items-center gap-2">
+                <FileSpreadsheet size={18} />
+                التقارير والطباعة
+              </div>
+              {activeTab === "reports" && (
+                <motion.div
+                  layoutId="activeTab"
+                  className="absolute bottom-0 left-0 right-0 h-0.5 bg-indigo-600"
+                />
+              )}
             </button>
           </div>
 
@@ -1414,7 +1421,9 @@ function MainApp() {
                   >
                     <div className="flex items-center justify-between border-b border-slate-100 bg-slate-50 px-4 py-3">
                       <span className="text-sm font-black text-slate-700">
-                        {"\u0627\u0644\u0625\u0634\u0639\u0627\u0631\u0627\u062A"}
+                        {
+                          "\u0627\u0644\u0625\u0634\u0639\u0627\u0631\u0627\u062A"
+                        }
                       </span>
                       <button onClick={() => setShowNotifications(false)}>
                         <X size={16} className="text-slate-400" />
@@ -1424,7 +1433,9 @@ function MainApp() {
                     <div className="max-h-96 overflow-y-auto">
                       {notificationCount === 0 && (
                         <p className="py-8 text-center text-sm text-slate-400">
-                          {"\u0644\u0627 \u062A\u0648\u062C\u062F \u0623\u0642\u0633\u0627\u0637 \u0645\u0633\u062A\u062D\u0642\u0629 \u0642\u0631\u064A\u0628\u0627\u064B"}
+                          {
+                            "\u0644\u0627 \u062A\u0648\u062C\u062F \u0623\u0642\u0633\u0627\u0637 \u0645\u0633\u062A\u062D\u0642\u0629 \u0642\u0631\u064A\u0628\u0627\u064B"
+                          }
                         </p>
                       )}
 
@@ -1432,7 +1443,10 @@ function MainApp() {
                         <div>
                           <div className="border-b border-rose-100 bg-rose-50 px-4 py-2">
                             <span className="text-xs font-black uppercase tracking-wider text-rose-600">
-                              {"\u0645\u0633\u062A\u062D\u0642 \u0627\u0644\u064A\u0648\u0645"} ({dueToday.length})
+                              {
+                                "\u0645\u0633\u062A\u062D\u0642 \u0627\u0644\u064A\u0648\u0645"
+                              }{" "}
+                              ({dueToday.length})
                             </span>
                           </div>
                           {dueToday.map((item) => (
@@ -1447,7 +1461,10 @@ function MainApp() {
                         <div>
                           <div className="border-b border-amber-100 bg-amber-50 px-4 py-2">
                             <span className="text-xs font-black uppercase tracking-wider text-amber-600">
-                              {"\u0645\u0633\u062A\u062D\u0642 \u062E\u0644\u0627\u0644 7 \u0623\u064A\u0627\u0645"} ({dueSoon.length})
+                              {
+                                "\u0645\u0633\u062A\u062D\u0642 \u062E\u0644\u0627\u0644 7 \u0623\u064A\u0627\u0645"
+                              }{" "}
+                              ({dueSoon.length})
                             </span>
                           </div>
                           {dueSoon.map((item) => (
@@ -1575,22 +1592,22 @@ function MainApp() {
                 <PieChartIcon size={16} className="text-indigo-600" />
                 توزيع التحصيل حسب المشروع
               </h3>
-              <div className="h-[280px] w-full flex justify-center items-center">
+              <div className="h-[300px] w-full flex justify-center items-center">
                 {stats.projectStats.length > 0 ? (
-                  <PieChart width={350} height={280}>
+                  <PieChart width={500} height={300}>
                     <Pie
                       data={stats.projectStats}
                       cx="50%"
                       cy="50%"
-                      innerRadius={40}
-                      outerRadius={80}
+                      innerRadius={65}
+                      outerRadius={110}
                       paddingAngle={5}
                       dataKey="collected"
                       nameKey="name"
                       label={({ name, percent }: any) =>
                         `${name} (${(percent * 100).toFixed(0)}%)`
                       }
-                      labelLine={false}
+                      labelLine={true}
                     >
                       {stats.projectStats.map((entry: any, index: number) => (
                         <Cell
@@ -1610,7 +1627,10 @@ function MainApp() {
                     <Tooltip
                       formatter={(value: number) => formatCurrency(value)}
                     />
-                    <Legend iconSize={10} wrapperStyle={{ fontSize: "10px" }} />
+                    <Legend
+                      iconSize={12}
+                      wrapperStyle={{ fontSize: "12px", fontWeight: 700 }}
+                    />
                   </PieChart>
                 ) : (
                   <div className="h-full flex items-center justify-center text-slate-400">
@@ -1625,22 +1645,22 @@ function MainApp() {
                 <TrendingUp size={16} className="text-indigo-600" />
                 التدفق المالي الشهري
               </h3>
-              <div className="h-[280px] w-full flex justify-center items-center">
+              <div className="h-[300px] w-full flex justify-center items-center">
                 {stats.monthlyStats.length > 0 ? (
                   <AreaChart
-                    width={350}
-                    height={280}
+                    width={500}
+                    height={300}
                     data={stats.monthlyStats}
-                    margin={{ top: 10, right: 10, left: 0, bottom: 0 }}
+                    margin={{ top: 20, right: 20, left: 10, bottom: 0 }}
                   >
                     <CartesianGrid
                       strokeDasharray="3 3"
                       vertical={false}
-                      stroke="#f1f5f9"
+                      stroke="#e2e8f0"
                     />
                     <XAxis
                       dataKey="month"
-                      tick={{ fontSize: 10, fontWeight: 700 }}
+                      tick={{ fontSize: 11, fontWeight: 700 }}
                     />
                     <YAxis
                       tickFormatter={(v) =>
@@ -1650,7 +1670,8 @@ function MainApp() {
                             ? `${(v / 1000).toFixed(0)}K`
                             : v
                       }
-                      tick={{ fontSize: 8 }}
+                      tick={{ fontSize: 10, fontWeight: 600 }}
+                      width={45}
                     />
                     <Area
                       type="monotone"
@@ -1658,8 +1679,8 @@ function MainApp() {
                       name="المحصل"
                       stroke="#10b981"
                       fill="#10b981"
-                      fillOpacity={0.1}
-                      strokeWidth={2}
+                      fillOpacity={0.15}
+                      strokeWidth={2.5}
                     />
                     <Area
                       type="monotone"
@@ -1667,14 +1688,14 @@ function MainApp() {
                       name="المتبقي"
                       stroke="#f43f5e"
                       fill="#f43f5e"
-                      fillOpacity={0.1}
-                      strokeWidth={2}
+                      fillOpacity={0.15}
+                      strokeWidth={2.5}
                     />
                     <Legend
                       verticalAlign="top"
-                      height={20}
-                      iconSize={10}
-                      wrapperStyle={{ fontSize: "10px" }}
+                      height={28}
+                      iconSize={12}
+                      wrapperStyle={{ fontSize: "12px", fontWeight: 700 }}
                     />
                   </AreaChart>
                 ) : (
@@ -1851,8 +1872,8 @@ function DashboardView({
     });
   };
 
-  const allKeys = filteredData.map(
-    (item: InstallmentData) => buildInstallmentKey(item),
+  const allKeys = filteredData.map((item: InstallmentData) =>
+    buildInstallmentKey(item),
   );
   const allSelected =
     allKeys.length > 0 && allKeys.every((k: string) => selectedRows.has(k));
@@ -1961,34 +1982,73 @@ function DashboardView({
                       {stats.projectStats.map((entry: any, index: number) => (
                         <Cell
                           key={`cell-${index}`}
-                          fill={["#6366f1", "#10b981", "#f43f5e", "#f59e0b", "#8b5cf6"][index % 5]}
+                          fill={
+                            [
+                              "#6366f1",
+                              "#10b981",
+                              "#f43f5e",
+                              "#f59e0b",
+                              "#8b5cf6",
+                            ][index % 5]
+                          }
                         />
                       ))}
                     </Pie>
                     <Tooltip
-                      contentStyle={{ borderRadius: "1rem", border: "none", boxShadow: "0 10px 15px -3px rgb(0 0 0 / 0.1)", textAlign: "right", direction: "rtl" }}
-                      formatter={(value: number) => [formatCurrency(value), "المحصل"]}
+                      contentStyle={{
+                        borderRadius: "1rem",
+                        border: "none",
+                        boxShadow: "0 10px 15px -3px rgb(0 0 0 / 0.1)",
+                        textAlign: "right",
+                        direction: "rtl",
+                      }}
+                      formatter={(value: number) => [
+                        formatCurrency(value),
+                        "المحصل",
+                      ]}
                     />
                   </PieChart>
                 </ResponsiveContainer>
               ) : (
-                <div className="h-full flex items-center justify-center text-slate-400 font-medium">لا توجد بيانات للمشاريع</div>
+                <div className="h-full flex items-center justify-center text-slate-400 font-medium">
+                  لا توجد بيانات للمشاريع
+                </div>
               )}
             </div>
             {/* Detailed Side Legend */}
             <div className="w-full xl:w-1/2 space-y-3 max-h-[280px] overflow-y-auto">
               {stats.projectStats.map((p, index) => {
-                const percent = ((p.collected / stats.totalCollected) * 100) || 0;
+                const percent = (p.collected / stats.totalCollected) * 100 || 0;
                 return (
-                  <div key={p.name} className="flex flex-col gap-1 p-2 rounded-xl hover:bg-slate-50 transition-colors border border-transparent hover:border-slate-100">
+                  <div
+                    key={p.name}
+                    className="flex flex-col gap-1 p-2 rounded-xl hover:bg-slate-50 transition-colors border border-transparent hover:border-slate-100"
+                  >
                     <div className="flex items-center justify-between">
                       <div className="flex items-center gap-2">
-                        <div className="w-3 h-3 rounded-full" style={{ backgroundColor: ["#6366f1", "#10b981", "#f43f5e", "#f59e0b", "#8b5cf6"][index % 5] }} />
-                        <span className="text-xs font-black text-slate-700">{p.name}</span>
+                        <div
+                          className="w-3 h-3 rounded-full"
+                          style={{
+                            backgroundColor: [
+                              "#6366f1",
+                              "#10b981",
+                              "#f43f5e",
+                              "#f59e0b",
+                              "#8b5cf6",
+                            ][index % 5],
+                          }}
+                        />
+                        <span className="text-xs font-black text-slate-700">
+                          {p.name}
+                        </span>
                       </div>
-                      <span className="text-[10px] font-black py-0.5 px-2 bg-slate-100 text-slate-600 rounded-full">%{percent.toFixed(1)}</span>
+                      <span className="text-[10px] font-black py-0.5 px-2 bg-slate-100 text-slate-600 rounded-full">
+                        %{percent.toFixed(1)}
+                      </span>
                     </div>
-                    <div className="text-[11px] font-bold text-slate-400 mr-5">{formatCurrency(p.collected)}</div>
+                    <div className="text-[11px] font-bold text-slate-400 mr-5">
+                      {formatCurrency(p.collected)}
+                    </div>
                   </div>
                 );
               })}
@@ -2005,45 +2065,80 @@ function DashboardView({
           <div className="h-[280px]">
             {stats.monthlyStats.length > 0 ? (
               <ResponsiveContainer width="100%" height="100%">
-                <AreaChart data={stats.monthlyStats} margin={{ top: 20, right: 10, left: 0, bottom: 0 }}>
+                <AreaChart
+                  data={stats.monthlyStats}
+                  margin={{ top: 20, right: 10, left: 0, bottom: 0 }}
+                >
                   <defs>
                     <linearGradient id="colorTrend" x1="0" y1="0" x2="0" y2="1">
-                      <stop offset="5%" stopColor="#10b981" stopOpacity={0.2}/>
-                      <stop offset="95%" stopColor="#10b981" stopOpacity={0}/>
+                      <stop offset="5%" stopColor="#10b981" stopOpacity={0.2} />
+                      <stop offset="95%" stopColor="#10b981" stopOpacity={0} />
                     </linearGradient>
                   </defs>
-                  <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f1f5f9" />
-                  <XAxis dataKey="month" tick={{ fontSize: 10, fontWeight: "bold" }} axisLine={false} tickLine={false} />
-                  <YAxis 
-                    tickFormatter={(v) => v >= 1000000 ? `${(v/1000000).toFixed(1)}M` : v >= 1000 ? `${(v/1000).toFixed(0)}K` : v}
+                  <CartesianGrid
+                    strokeDasharray="3 3"
+                    vertical={false}
+                    stroke="#f1f5f9"
+                  />
+                  <XAxis
+                    dataKey="month"
                     tick={{ fontSize: 10, fontWeight: "bold" }}
                     axisLine={false}
                     tickLine={false}
                   />
-                  <Tooltip 
-                    contentStyle={{ borderRadius: "1rem", border: "none", boxShadow: "0 10px 15px -3px rgb(0 0 0 / 0.1)", textAlign: "right", direction: "rtl" }}
-                    formatter={(value: number) => [formatCurrency(value), "المحصل"]}
+                  <YAxis
+                    tickFormatter={(v) =>
+                      v >= 1000000
+                        ? `${(v / 1000000).toFixed(1)}M`
+                        : v >= 1000
+                          ? `${(v / 1000).toFixed(0)}K`
+                          : v
+                    }
+                    tick={{ fontSize: 10, fontWeight: "bold" }}
+                    axisLine={false}
+                    tickLine={false}
                   />
-                  <Area 
-                    type="monotone" 
-                    dataKey="collected" 
-                    stroke="#10b981" 
-                    strokeWidth={4} 
-                    fillOpacity={1} 
+                  <Tooltip
+                    contentStyle={{
+                      borderRadius: "1rem",
+                      border: "none",
+                      boxShadow: "0 10px 15px -3px rgb(0 0 0 / 0.1)",
+                      textAlign: "right",
+                      direction: "rtl",
+                    }}
+                    formatter={(value: number) => [
+                      formatCurrency(value),
+                      "المحصل",
+                    ]}
+                  />
+                  <Area
+                    type="monotone"
+                    dataKey="collected"
+                    stroke="#10b981"
+                    strokeWidth={4}
+                    fillOpacity={1}
                     fill="url(#colorTrend)"
                   >
-                    <LabelList 
-                      dataKey="collected" 
-                      position="top" 
-                      offset={10} 
-                      formatter={(v: number) => v > 0 ? (v >= 1000 ? `${(v/1000).toFixed(0)}K` : v) : ''}
+                    <LabelList
+                      dataKey="collected"
+                      position="top"
+                      offset={10}
+                      formatter={(v: number) =>
+                        v > 0
+                          ? v >= 1000
+                            ? `${(v / 1000).toFixed(0)}K`
+                            : v
+                          : ""
+                      }
                       className="text-[9px] font-black fill-slate-400"
                     />
                   </Area>
                 </AreaChart>
               </ResponsiveContainer>
             ) : (
-              <div className="h-full flex items-center justify-center text-slate-400 font-medium">لا توجد بيانات زمنية</div>
+              <div className="h-full flex items-center justify-center text-slate-400 font-medium">
+                لا توجد بيانات زمنية
+              </div>
             )}
           </div>
         </div>
@@ -2125,11 +2220,11 @@ function DashboardView({
               onChange={(e) => setFilterProject(e.target.value)}
             >
               <option value="الكل">كل المشاريع</option>
-                {Array.from(new Set(data.map((item) => item.project))).map(
-                  (p) => (
-                    <option key={p} value={p}>
-                      {p}
-                    </option>
+              {Array.from(new Set(data.map((item) => item.project))).map(
+                (p) => (
+                  <option key={p} value={p}>
+                    {p}
+                  </option>
                 ),
               )}
             </select>
@@ -2382,7 +2477,9 @@ function ReportsView({
             <span className="w-2 h-8 bg-indigo-600 rounded-full hidden md:block" />
             مركز التقارير والتحليل المالي
           </h2>
-          <p className="text-slate-500 font-medium mt-2">نظرة شاملة على أداء التحصيلات وتدفقات السيولة النقدية</p>
+          <p className="text-slate-500 font-medium mt-2">
+            نظرة شاملة على أداء التحصيلات وتدفقات السيولة النقدية
+          </p>
         </div>
         {isAdmin && (
           <div className="flex flex-wrap justify-center gap-4">
@@ -2433,7 +2530,9 @@ function ReportsView({
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
         <div className="card-ledger p-6 bg-white">
           <div className="flex items-center justify-between mb-8">
-            <h3 className="text-lg font-black text-slate-900 border-r-4 border-indigo-500 pr-3">توزيع أداء المشاريع</h3>
+            <h3 className="text-lg font-black text-slate-900 border-r-4 border-indigo-500 pr-3">
+              توزيع أداء المشاريع
+            </h3>
             <div className="p-2 bg-indigo-50 text-indigo-600 rounded-xl">
               <PieChartIcon size={20} />
             </div>
@@ -2457,36 +2556,78 @@ function ReportsView({
                       {stats.projectStats.map((_, index) => (
                         <Cell
                           key={`cell-${index}`}
-                          fill={["#6366f1", "#10b981", "#f43f5e", "#f59e0b", "#8b5cf6"][index % 5]}
+                          fill={
+                            [
+                              "#6366f1",
+                              "#10b981",
+                              "#f43f5e",
+                              "#f59e0b",
+                              "#8b5cf6",
+                            ][index % 5]
+                          }
                         />
                       ))}
                     </Pie>
                     <Tooltip
-                      contentStyle={{ borderRadius: "1.5rem", border: "none", boxShadow: "0 20px 25px -5px rgb(0 0 0 / 0.1)", textAlign: "right", direction: "rtl" }}
-                      formatter={(value: number) => [formatCurrency(value), "المحصل"]}
+                      contentStyle={{
+                        borderRadius: "1.5rem",
+                        border: "none",
+                        boxShadow: "0 20px 25px -5px rgb(0 0 0 / 0.1)",
+                        textAlign: "right",
+                        direction: "rtl",
+                      }}
+                      formatter={(value: number) => [
+                        formatCurrency(value),
+                        "المحصل",
+                      ]}
                     />
                   </PieChart>
                 </ResponsiveContainer>
               ) : (
-                <NoDataPlaceholder icon={<PieChartIcon size={48} />} text="لا توجد بيانات للمشاريع" />
+                <NoDataPlaceholder
+                  icon={<PieChartIcon size={48} />}
+                  text="لا توجد بيانات للمشاريع"
+                />
               )}
             </div>
             {/* Reports Legend */}
             <div className="w-full xl:w-1/2 space-y-4 max-h-[320px] overflow-y-auto pr-2 custom-scrollbar">
               {stats.projectStats.map((p, index) => {
-                const percent = ((p.collected / stats.totalCollected) * 100) || 0;
+                const percent = (p.collected / stats.totalCollected) * 100 || 0;
                 return (
-                  <div key={p.name} className="flex flex-col gap-1.5 p-3 rounded-2xl bg-slate-50/50 border border-slate-100 hover:border-indigo-200 transition-all">
+                  <div
+                    key={p.name}
+                    className="flex flex-col gap-1.5 p-3 rounded-2xl bg-slate-50/50 border border-slate-100 hover:border-indigo-200 transition-all"
+                  >
                     <div className="flex items-center justify-between">
                       <div className="flex items-center gap-3">
-                        <div className="w-4 h-4 rounded-full shadow-sm" style={{ backgroundColor: ["#6366f1", "#10b981", "#f43f5e", "#f59e0b", "#8b5cf6"][index % 5] }} />
-                        <span className="text-sm font-black text-slate-800">{p.name}</span>
+                        <div
+                          className="w-4 h-4 rounded-full shadow-sm"
+                          style={{
+                            backgroundColor: [
+                              "#6366f1",
+                              "#10b981",
+                              "#f43f5e",
+                              "#f59e0b",
+                              "#8b5cf6",
+                            ][index % 5],
+                          }}
+                        />
+                        <span className="text-sm font-black text-slate-800">
+                          {p.name}
+                        </span>
                       </div>
-                      <span className="text-[11px] font-black py-1 px-3 bg-white text-indigo-600 rounded-full border border-indigo-100 shadow-sm">%{percent.toFixed(1)}</span>
+                      <span className="text-[11px] font-black py-1 px-3 bg-white text-indigo-600 rounded-full border border-indigo-100 shadow-sm">
+                        %{percent.toFixed(1)}
+                      </span>
                     </div>
                     <div className="flex justify-between items-center mr-7">
-                      <span className="text-xs font-bold text-slate-400">صافي المحصل:</span>
-                      <span className="text-sm font-black text-slate-700">{formatCurrency(p.collected)}</span>
+                      <span className="text-xs font-bold text-slate-400">
+                        صافي المحصل:
+                      </span>
+                      <span className="text-sm font-black text-slate-700">
+                        {formatCurrency(p.collected)}
+                      </span>
                     </div>
                   </div>
                 );
@@ -2497,7 +2638,9 @@ function ReportsView({
 
         <div className="card-ledger p-6 bg-white">
           <div className="flex items-center justify-between mb-8">
-            <h3 className="text-lg font-black text-slate-900 border-r-4 border-emerald-500 pr-3">تحليل الاتجاه المالي</h3>
+            <h3 className="text-lg font-black text-slate-900 border-r-4 border-emerald-500 pr-3">
+              تحليل الاتجاه المالي
+            </h3>
             <div className="p-2 bg-emerald-50 text-emerald-600 rounded-xl">
               <TrendingUp size={20} />
             </div>
@@ -2505,46 +2648,90 @@ function ReportsView({
           <div className="h-[350px]">
             {stats.monthlyStats.length > 0 ? (
               <ResponsiveContainer width="100%" height="100%">
-                <AreaChart data={stats.monthlyStats} margin={{ top: 30, right: 20, left: 0, bottom: 0 }}>
+                <AreaChart
+                  data={stats.monthlyStats}
+                  margin={{ top: 30, right: 20, left: 0, bottom: 0 }}
+                >
                   <defs>
-                    <linearGradient id="colorReport" x1="0" y1="0" x2="0" y2="1">
-                      <stop offset="5%" stopColor="#10b981" stopOpacity={0.3}/>
-                      <stop offset="95%" stopColor="#10b981" stopOpacity={0}/>
+                    <linearGradient
+                      id="colorReport"
+                      x1="0"
+                      y1="0"
+                      x2="0"
+                      y2="1"
+                    >
+                      <stop offset="5%" stopColor="#10b981" stopOpacity={0.3} />
+                      <stop offset="95%" stopColor="#10b981" stopOpacity={0} />
                     </linearGradient>
                   </defs>
-                  <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f1f5f9" />
-                  <XAxis dataKey="month" tick={{ fontSize: 11, fontWeight: "black" }} axisLine={false} tickLine={false} />
-                  <YAxis 
-                    tickFormatter={(v) => v >= 1000000 ? `${(v/1000000).toFixed(1)}M` : v >= 1000 ? `${(v/1000).toFixed(0)}K` : v}
+                  <CartesianGrid
+                    strokeDasharray="3 3"
+                    vertical={false}
+                    stroke="#f1f5f9"
+                  />
+                  <XAxis
+                    dataKey="month"
+                    tick={{ fontSize: 11, fontWeight: "black" }}
+                    axisLine={false}
+                    tickLine={false}
+                  />
+                  <YAxis
+                    tickFormatter={(v) =>
+                      v >= 1000000
+                        ? `${(v / 1000000).toFixed(1)}M`
+                        : v >= 1000
+                          ? `${(v / 1000).toFixed(0)}K`
+                          : v
+                    }
                     tick={{ fontSize: 10, fontWeight: "bold" }}
                     axisLine={false}
                     tickLine={false}
                   />
-                  <Tooltip 
-                    contentStyle={{ borderRadius: "1.5rem", border: "none", boxShadow: "0 20px 25px -5px rgb(0 0 0 / 0.1)", textAlign: "right", direction: "rtl" }}
-                    formatter={(value: number) => [formatCurrency(value), "المحصل"]}
+                  <Tooltip
+                    contentStyle={{
+                      borderRadius: "1.5rem",
+                      border: "none",
+                      boxShadow: "0 20px 25px -5px rgb(0 0 0 / 0.1)",
+                      textAlign: "right",
+                      direction: "rtl",
+                    }}
+                    formatter={(value: number) => [
+                      formatCurrency(value),
+                      "المحصل",
+                    ]}
                   />
-                  <Area 
-                    type="monotone" 
-                    dataKey="collected" 
-                    stroke="#10b981" 
-                    strokeWidth={5} 
-                    fillOpacity={1} 
+                  <Area
+                    type="monotone"
+                    dataKey="collected"
+                    stroke="#10b981"
+                    strokeWidth={5}
+                    fillOpacity={1}
                     fill="url(#colorReport)"
                     animationDuration={1500}
                   >
-                    <LabelList 
-                      dataKey="collected" 
-                      position="top" 
-                      offset={15} 
-                      formatter={(v: number) => v > 0 ? (v >= 1000000 ? `${(v/1000000).toFixed(1)}M` : v >= 1000 ? `${(v/1000).toFixed(0)}K` : v) : ''}
+                    <LabelList
+                      dataKey="collected"
+                      position="top"
+                      offset={15}
+                      formatter={(v: number) =>
+                        v > 0
+                          ? v >= 1000000
+                            ? `${(v / 1000000).toFixed(1)}M`
+                            : v >= 1000
+                              ? `${(v / 1000).toFixed(0)}K`
+                              : v
+                          : ""
+                      }
                       className="text-[10px] font-black fill-slate-500"
                     />
                   </Area>
                 </AreaChart>
               </ResponsiveContainer>
             ) : (
-              <NoDataPlaceholder icon={<TrendingUp size={48} />} text="لا توجد بيانات زمنية" />
+              <NoDataPlaceholder
+                icon={<TrendingUp size={48} />}
+                text="لا توجد بيانات زمنية"
+              />
             )}
           </div>
         </div>
@@ -2553,7 +2740,9 @@ function ReportsView({
       {/* Analytical Table */}
       <div className="card-ledger bg-white overflow-hidden">
         <div className="px-8 py-6 border-b border-slate-100">
-          <h3 className="text-lg font-black text-slate-900">مقارنة أداء المشاريع</h3>
+          <h3 className="text-lg font-black text-slate-900">
+            مقارنة أداء المشاريع
+          </h3>
         </div>
         <div className="overflow-x-auto">
           <table className="w-full text-right">
@@ -2570,23 +2759,40 @@ function ReportsView({
               {stats.projectStats.map((p) => {
                 const rate = getCollectionRate(p.collected, p.total);
                 return (
-                  <tr key={p.name} className="hover:bg-slate-50/50 transition-colors group">
-                    <td className="px-8 py-5 font-black text-slate-800">{p.name}</td>
-                    <td className="px-8 py-5 font-bold">{formatCurrency(p.total)}</td>
-                    <td className="px-8 py-5 font-black text-emerald-600">{formatCurrency(p.collected)}</td>
-                    <td className="px-8 py-5 font-black text-rose-500">{formatCurrency(p.remaining)}</td>
+                  <tr
+                    key={p.name}
+                    className="hover:bg-slate-50/50 transition-colors group"
+                  >
+                    <td className="px-8 py-5 font-black text-slate-800">
+                      {p.name}
+                    </td>
+                    <td className="px-8 py-5 font-bold">
+                      {formatCurrency(p.total)}
+                    </td>
+                    <td className="px-8 py-5 font-black text-emerald-600">
+                      {formatCurrency(p.collected)}
+                    </td>
+                    <td className="px-8 py-5 font-black text-rose-500">
+                      {formatCurrency(p.remaining)}
+                    </td>
                     <td className="px-8 py-5">
                       <div className="flex items-center gap-4 justify-center">
                         <div className="w-32 h-2.5 bg-slate-100 rounded-full overflow-hidden shadow-inner">
                           <div
                             className={cn(
                               "h-full rounded-full transition-all duration-1000",
-                              rate > 80 ? "bg-emerald-500 " : rate > 50 ? "bg-indigo-500" : "bg-rose-500"
+                              rate > 80
+                                ? "bg-emerald-500 "
+                                : rate > 50
+                                  ? "bg-indigo-500"
+                                  : "bg-rose-500",
                             )}
                             style={{ width: `${rate}%` }}
                           />
                         </div>
-                        <span className="text-xs font-black text-slate-700">%{rate.toFixed(0)}</span>
+                        <span className="text-xs font-black text-slate-700">
+                          %{rate.toFixed(0)}
+                        </span>
                       </div>
                     </td>
                   </tr>
@@ -2600,7 +2806,13 @@ function ReportsView({
   );
 }
 
-function NoDataPlaceholder({ icon, text }: { icon: React.ReactNode, text: string }) {
+function NoDataPlaceholder({
+  icon,
+  text,
+}: {
+  icon: React.ReactNode;
+  text: string;
+}) {
   return (
     <div className="h-full flex flex-col items-center justify-center text-slate-300 gap-4">
       <div className="opacity-20">{icon}</div>
@@ -2633,11 +2845,15 @@ function KpiCard({
         <div
           className={cn(
             "w-14 h-14 rounded-2xl flex items-center justify-center transition-all group-hover:scale-110 shadow-lg",
-            color === "indigo" ? "bg-indigo-600 text-white shadow-indigo-200" :
-            color === "emerald" ? "bg-emerald-500 text-white shadow-emerald-200" :
-            color === "rose" ? "bg-rose-500 text-white shadow-rose-200" :
-            color === "amber" ? "bg-amber-500 text-white shadow-amber-200" :
-            "bg-slate-900 text-white shadow-slate-200"
+            color === "indigo"
+              ? "bg-indigo-600 text-white shadow-indigo-200"
+              : color === "emerald"
+                ? "bg-emerald-500 text-white shadow-emerald-200"
+                : color === "rose"
+                  ? "bg-rose-500 text-white shadow-rose-200"
+                  : color === "amber"
+                    ? "bg-amber-500 text-white shadow-amber-200"
+                    : "bg-slate-900 text-white shadow-slate-200",
           )}
         >
           {icon}
@@ -2646,7 +2862,9 @@ function KpiCard({
           <div
             className={cn(
               "flex items-center gap-1 text-xs font-black px-3 py-1.5 rounded-full border shadow-sm",
-              trend.isUp ? "bg-emerald-50 text-emerald-600 border-emerald-100" : "bg-rose-50 text-rose-600 border-rose-100"
+              trend.isUp
+                ? "bg-emerald-50 text-emerald-600 border-emerald-100"
+                : "bg-rose-50 text-rose-600 border-rose-100",
             )}
           >
             {trend.isUp ? <TrendingUp size={14} /> : <TrendingDown size={14} />}
@@ -2655,9 +2873,13 @@ function KpiCard({
         )}
       </div>
       <div>
-        <h3 className="text-slate-400 text-xs font-black mb-2 uppercase tracking-widest">{title}</h3>
+        <h3 className="text-slate-400 text-xs font-black mb-2 uppercase tracking-widest">
+          {title}
+        </h3>
         <div className="flex items-baseline gap-2">
-          <span className="text-2xl font-black text-slate-900 tracking-tight">{value}</span>
+          <span className="text-2xl font-black text-slate-900 tracking-tight">
+            {value}
+          </span>
         </div>
         {subtitle && (
           <p className="text-[10px] text-slate-400 font-bold mt-2 flex items-center gap-1 opacity-70">
@@ -2674,7 +2896,9 @@ function NotificationItem({ item }: { item: InstallmentData }) {
   return (
     <div className="border-b border-slate-50 px-4 py-3 transition-colors hover:bg-slate-50">
       <div className="flex items-center justify-between gap-3">
-        <span className="text-sm font-bold text-slate-800">{item.customer}</span>
+        <span className="text-sm font-bold text-slate-800">
+          {item.customer}
+        </span>
         <span className="text-xs text-slate-400">{item.date}</span>
       </div>
       <div className="mt-1 flex items-center gap-2">
@@ -2718,7 +2942,9 @@ function GeminiChatPanel({
         onClick={onToggle}
         className={cn(
           "fixed bottom-6 left-6 z-[51] w-14 h-14 rounded-full shadow-2xl flex items-center justify-center transition-all active:scale-90 print:hidden",
-          isOpen ? "bg-slate-800 text-white rotate-90" : "bg-indigo-600 text-white hover:bg-indigo-700 hover:scale-110"
+          isOpen
+            ? "bg-slate-800 text-white rotate-90"
+            : "bg-indigo-600 text-white hover:bg-indigo-700 hover:scale-110",
         )}
       >
         {isOpen ? <X size={24} /> : <Bot size={28} />}
@@ -2741,8 +2967,12 @@ function GeminiChatPanel({
                   <Bot size={20} />
                 </div>
                 <div>
-                  <h4 className="text-sm font-black text-slate-900 leading-none">مساعد البيانات الذكي</h4>
-                  <span className="text-[10px] text-emerald-500 font-bold">بواسطة Gemini 2.0 Flash</span>
+                  <h4 className="text-sm font-black text-slate-900 leading-none">
+                    مساعد البيانات الذكي
+                  </h4>
+                  <span className="text-[10px] text-emerald-500 font-bold">
+                    بواسطة Gemini 2.0 Flash
+                  </span>
                 </div>
               </div>
               <div className="flex items-center gap-1">
@@ -2769,17 +2999,22 @@ function GeminiChatPanel({
                   <div className="w-16 h-16 rounded-full bg-indigo-50 flex items-center justify-center text-indigo-400">
                     <Bot size={32} />
                   </div>
-                  <p className="text-sm font-bold text-slate-500 uppercase tracking-wider">كيف يمكنني مساعدتك اليوم؟</p>
-                  <p className="text-xs text-slate-400 leading-relaxed italic">يمكنك سؤالي عن إجمالي الأقساط، العملاء المتأخرين، أو توزيع المشاريع.</p>
+                  <p className="text-sm font-bold text-slate-500 uppercase tracking-wider">
+                    كيف يمكنني مساعدتك اليوم؟
+                  </p>
+                  <p className="text-xs text-slate-400 leading-relaxed italic">
+                    يمكنك سؤالي عن إجمالي الأقساط، العملاء المتأخرين، أو توزيع
+                    المشاريع.
+                  </p>
                 </div>
               )}
-              
+
               {messages.map((msg, i) => (
                 <div
                   key={msg.timestamp + i}
                   className={cn(
                     "flex w-full",
-                    msg.role === "user" ? "justify-start" : "justify-end"
+                    msg.role === "user" ? "justify-start" : "justify-end",
                   )}
                 >
                   <div
@@ -2787,14 +3022,14 @@ function GeminiChatPanel({
                       "max-w-[85%] px-4 py-3 rounded-2xl text-sm leading-relaxed shadow-sm",
                       msg.role === "user"
                         ? "bg-indigo-600 text-white rounded-tr-none font-medium"
-                        : "bg-white text-slate-800 border border-slate-100 rounded-tl-none font-bold"
+                        : "bg-white text-slate-800 border border-slate-100 rounded-tl-none font-bold",
                     )}
                   >
                     {msg.text}
                   </div>
                 </div>
               ))}
-              
+
               {isLoading && (
                 <div className="flex justify-end">
                   <div className="bg-white border border-slate-100 px-4 py-3 rounded-2xl rounded-tl-none flex items-center gap-1 shadow-sm">
@@ -2812,13 +3047,19 @@ function GeminiChatPanel({
               {!hasData && (
                 <div className="mb-3 px-3 py-2 bg-amber-50 border border-amber-100 rounded-xl flex items-center gap-2 text-amber-700">
                   <AlertCircle size={14} />
-                  <span className="text-[10px] font-bold">لا توجد بيانات حالياً للإجابة على استفساراتك.</span>
+                  <span className="text-[10px] font-bold">
+                    لا توجد بيانات حالياً للإجابة على استفساراتك.
+                  </span>
                 </div>
               )}
               <div className="relative flex items-center gap-2">
                 <input
                   type="text"
-                  placeholder={hasData ? "اسألني أي شيء عن البيانات..." : "برجاء تحميل بيانات أولاً"}
+                  placeholder={
+                    hasData
+                      ? "اسألني أي شيء عن البيانات..."
+                      : "برجاء تحميل بيانات أولاً"
+                  }
                   disabled={!hasData || isLoading}
                   value={input}
                   onChange={(e) => onInputChange(e.target.value)}
@@ -2830,7 +3071,11 @@ function GeminiChatPanel({
                   disabled={!input.trim() || isLoading || !hasData}
                   className="w-11 h-11 bg-indigo-600 text-white rounded-xl flex items-center justify-center hover:bg-indigo-700 disabled:bg-slate-200 disabled:text-slate-400 transition-all active:scale-95 shadow-lg shadow-indigo-100"
                 >
-                  {isLoading ? <Loader2 size={18} className="animate-spin" /> : <Send size={18} />}
+                  {isLoading ? (
+                    <Loader2 size={18} className="animate-spin" />
+                  ) : (
+                    <Send size={18} />
+                  )}
                 </button>
               </div>
             </div>
