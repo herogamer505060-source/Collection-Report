@@ -5,6 +5,7 @@ import type { InstallmentData } from "./src/types.ts";
 import {
   analyzePdfWithGemini,
   chatWithGemini,
+  type GeminiChatHistoryEntry,
   isGeminiConfigured,
 } from "./src/server/geminiApi.ts";
 
@@ -46,9 +47,10 @@ app.post("/api/gemini/analyze", async (request, response) => {
 });
 
 app.post("/api/gemini/chat", async (request, response) => {
-  const { message, data } = request.body as {
+  const { message, data, history } = request.body as {
     message?: string;
     data?: InstallmentData[];
+    history?: GeminiChatHistoryEntry[];
   };
 
   if (!message?.trim()) {
@@ -62,7 +64,11 @@ app.post("/api/gemini/chat", async (request, response) => {
   }
 
   try {
-    const text = await chatWithGemini(message, data);
+    const text = await chatWithGemini(
+      message,
+      data,
+      Array.isArray(history) ? history : [],
+    );
     response.json({ data: { text } });
   } catch (error) {
     sendGeminiError(response, error);

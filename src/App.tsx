@@ -55,6 +55,7 @@ import {
   Bot,
   Send,
   Bell,
+  ChevronDown,
 } from "lucide-react";
 import * as XLSX from "xlsx";
 import { useDropzone } from "react-dropzone";
@@ -116,10 +117,10 @@ interface DashboardViewProps {
   data: InstallmentData[];
   searchTerm: string;
   setSearchTerm: StateSetter<string>;
-  filterProject: string;
-  setFilterProject: StateSetter<string>;
-  filterStatus: string;
-  setFilterStatus: StateSetter<string>;
+  filterProjects: Set<string>;
+  setFilterProjects: StateSetter<Set<string>>;
+  filterStatuses: Set<string>;
+  setFilterStatuses: StateSetter<Set<string>>;
   startDate: string;
   setStartDate: StateSetter<string>;
   endDate: string;
@@ -384,6 +385,7 @@ const TEMPLATE_VARIABLES = [
   "{{remaining}}",
 ] as const;
 const TEMPLATE_TOKEN_REGEX = /\{\{(\w+)\}\}/g;
+const STATUS_FILTER_OPTIONS = ["مسدد", "جزئي", "متأخر", "ورقة مالية"];
 
 function getDefaultTemplateId(templates: WhatsAppTemplate[]): string {
   return templates.find((template) => template.isDefault)?.id ?? templates[0]?.id ?? "";
@@ -450,6 +452,13 @@ const formatDate = (dateStr: string) => {
     return dateStr;
   }
 };
+
+function toLocalDateString(d: Date): string {
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, "0");
+  const day = String(d.getDate()).padStart(2, "0");
+  return `${y}-${m}-${day}`;
+}
 
 const interpolateTemplate = (content: string, item: InstallmentData): string => {
   const templateValues: Record<string, string> = {
@@ -551,8 +560,8 @@ function MainApp() {
   const [isAIConfigured, setIsAIConfigured] = useState(false);
   const [showAiError, setShowAiError] = useState(false);
   const [searchTerm, setSearchTerm] = useState("");
-  const [filterProject, setFilterProject] = useState("الكل");
-  const [filterStatus, setFilterStatus] = useState("الكل");
+  const [filterProjects, setFilterProjects] = useState<Set<string>>(new Set());
+  const [filterStatuses, setFilterStatuses] = useState<Set<string>>(new Set());
   const [startDate, setStartDate] = useState("");
   const [endDate, setEndDate] = useState("");
   const [activeTab, setActiveTab] = useState<
@@ -1073,17 +1082,17 @@ function MainApp() {
 
                   let formattedDate = "";
                   if (rawDate instanceof Date) {
-                    formattedDate = rawDate.toISOString().split("T")[0];
+                    formattedDate = toLocalDateString(rawDate);
                   } else if (typeof rawDate === "number") {
                     const date = new Date((rawDate - 25569) * 86400 * 1000);
-                    formattedDate = date.toISOString().split("T")[0];
+                    formattedDate = toLocalDateString(date);
                   } else if (
                     typeof rawDate === "string" &&
                     rawDate.trim() !== ""
                   ) {
                     const d = new Date(rawDate);
                     formattedDate = !isNaN(d.getTime())
-                      ? d.toISOString().split("T")[0]
+                      ? toLocalDateString(d)
                       : rawDate;
                   } else {
                     formattedDate = String(rawDate || "");
@@ -1255,67 +1264,6 @@ function MainApp() {
     multiple: false,
   } as any);
 
-  const stats = useMemo((): DashboardStats => {
-    const totalNet = data.reduce((sum, item) => sum + item.netValue, 0);
-
-    // Logic Audit:
-    // 1. If there's a commercial paper, it's NOT considered collected cash yet (per user request).
-    // 2. We only count collected cash if there's no pending commercial paper.
-    const totalCollected = data.reduce((sum, item) => {
-      if (item.commercialPaper && item.commercialPaper.trim() !== "")
-        return sum;
-      return sum + item.collected;
-    }, 0);
-
-    const totalRemaining = data.reduce((sum, item) => sum + item.remaining, 0);
-
-    const projects = Array.from(new Set(data.map((item) => item.project)));
-    const projectStats = projects.map((p) => {
-      const pData = data.filter((item) => item.project === p);
-      return {
-        name: String(p),
-        collected: pData.reduce((sum, item) => {
-          if (item.commercialPaper && item.commercialPaper.trim() !== "")
-            return sum;
-          return sum + item.collected;
-        }, 0),
-        remaining: pData.reduce((sum, item) => sum + item.remaining, 0),
-        total: pData.reduce((sum, item) => sum + item.netValue, 0),
-      };
-    });
-
-    const months = Array.from(
-      new Set(
-        data.map((item) =>
-          item.date && item.date.length >= 7 ? item.date.substring(0, 7) : "",
-        ),
-      ),
-    )
-      .filter((m) => m !== "")
-      .sort();
-    const monthlyStats = months.map((m) => {
-      const mData = data.filter((item) => item.date && item.date.startsWith(m));
-      return {
-        month: String(m),
-        collected: mData.reduce((sum, item) => {
-          if (item.commercialPaper && item.commercialPaper.trim() !== "")
-            return sum;
-          return sum + item.collected;
-        }, 0),
-        remaining: mData.reduce((sum, item) => sum + item.remaining, 0),
-      };
-    });
-
-    return {
-      totalNetValue: totalNet,
-      totalCollected: totalCollected,
-      totalRemaining: totalRemaining,
-      collectionRate: totalNet > 0 ? (totalCollected / totalNet) * 100 : 0,
-      projectStats,
-      monthlyStats,
-    };
-  }, [data]);
-
   const filteredData = useMemo(() => {
     return data
       .filter((item) => {
@@ -1323,13 +1271,14 @@ function MainApp() {
           item.customer.toLowerCase().includes(searchTerm.toLowerCase()) ||
           item.unitCode.toLowerCase().includes(searchTerm.toLowerCase());
         const matchesProject =
-          filterProject === "الكل" || item.project === filterProject;
+          filterProjects.size === 0 || filterProjects.has(item.project);
 
         let matchesStatus = true;
-        if (filterStatus !== "الكل") {
+        if (filterStatuses.size > 0) {
           const itemStatus = getInstallmentStatus(item);
-          matchesStatus =
-            INSTALLMENT_STATUS_META[itemStatus].filterLabel === filterStatus;
+          matchesStatus = filterStatuses.has(
+            INSTALLMENT_STATUS_META[itemStatus].filterLabel,
+          );
         }
 
         let matchesDate = true;
@@ -1364,7 +1313,69 @@ function MainApp() {
             : 0;
         return dateA - dateB;
       });
-  }, [data, searchTerm, filterProject, filterStatus, startDate, endDate]);
+  }, [data, searchTerm, filterProjects, filterStatuses, startDate, endDate]);
+
+  const stats = useMemo((): DashboardStats => {
+    const src = filteredData;
+    const totalNet = src.reduce((sum, item) => sum + item.netValue, 0);
+
+    // Logic Audit:
+    // 1. If there's a commercial paper, it's NOT considered collected cash yet (per user request).
+    // 2. We only count collected cash if there's no pending commercial paper.
+    const totalCollected = src.reduce((sum, item) => {
+      if (item.commercialPaper && item.commercialPaper.trim() !== "")
+        return sum;
+      return sum + item.collected;
+    }, 0);
+
+    const totalRemaining = src.reduce((sum, item) => sum + item.remaining, 0);
+
+    const projects = Array.from(new Set(src.map((item) => item.project)));
+    const projectStats = projects.map((p) => {
+      const pData = src.filter((item) => item.project === p);
+      return {
+        name: String(p),
+        collected: pData.reduce((sum, item) => {
+          if (item.commercialPaper && item.commercialPaper.trim() !== "")
+            return sum;
+          return sum + item.collected;
+        }, 0),
+        remaining: pData.reduce((sum, item) => sum + item.remaining, 0),
+        total: pData.reduce((sum, item) => sum + item.netValue, 0),
+      };
+    });
+
+    const months = Array.from(
+      new Set(
+        src.map((item) =>
+          item.date && item.date.length >= 7 ? item.date.substring(0, 7) : "",
+        ),
+      ),
+    )
+      .filter((m) => m !== "")
+      .sort();
+    const monthlyStats = months.map((m) => {
+      const mData = src.filter((item) => item.date && item.date.startsWith(m));
+      return {
+        month: String(m),
+        collected: mData.reduce((sum, item) => {
+          if (item.commercialPaper && item.commercialPaper.trim() !== "")
+            return sum;
+          return sum + item.collected;
+        }, 0),
+        remaining: mData.reduce((sum, item) => sum + item.remaining, 0),
+      };
+    });
+
+    return {
+      totalNetValue: totalNet,
+      totalCollected,
+      totalRemaining,
+      collectionRate: totalNet > 0 ? (totalCollected / totalNet) * 100 : 0,
+      projectStats,
+      monthlyStats,
+    };
+  }, [filteredData]);
 
   const totals = useMemo(() => {
     return filteredData.reduce(
@@ -1728,10 +1739,10 @@ function MainApp() {
             data={data}
             searchTerm={searchTerm}
             setSearchTerm={setSearchTerm}
-            filterProject={filterProject}
-            setFilterProject={setFilterProject}
-            filterStatus={filterStatus}
-            setFilterStatus={setFilterStatus}
+            filterProjects={filterProjects}
+            setFilterProjects={setFilterProjects}
+            filterStatuses={filterStatuses}
+            setFilterStatuses={setFilterStatuses}
             startDate={startDate}
             setStartDate={setStartDate}
             endDate={endDate}
@@ -2081,10 +2092,10 @@ function DashboardView({
   data,
   searchTerm,
   setSearchTerm,
-  filterProject,
-  setFilterProject,
-  filterStatus,
-  setFilterStatus,
+  filterProjects,
+  setFilterProjects,
+  filterStatuses,
+  setFilterStatuses,
   startDate,
   setStartDate,
   endDate,
@@ -2146,6 +2157,10 @@ function DashboardView({
     withPhone.forEach((item: InstallmentData) => openWhatsApp(item));
   };
 
+  const projectOptions = Array.from(new Set(data.map((item) => item.project))).filter(
+    (project) => project.trim() !== "",
+  );
+
   return (
     <>
       {/* KPI Cards */}
@@ -2181,7 +2196,7 @@ function DashboardView({
           />
           <KpiCard
             title="عدد العملاء"
-            value={data.length.toString()}
+            value={filteredData.length.toString()}
             icon={<Users size={24} />}
             subtitle="نشط"
             color="amber"
@@ -2437,31 +2452,18 @@ function DashboardView({
                 onChange={(e) => setSearchTerm(e.target.value)}
               />
             </div>
-            <select
-              className="px-4 py-2 bg-slate-50 border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500/20 text-sm"
-              value={filterStatus}
-              onChange={(e) => setFilterStatus(e.target.value)}
-            >
-              <option value="الكل">كل الحالات</option>
-              <option value="مسدد">مسدد</option>
-              <option value="جزئي">جزئي</option>
-              <option value="متأخر">متأخر</option>
-              <option value="ورقة مالية">ورقة مالية</option>
-            </select>
-            <select
-              className="px-4 py-2 bg-slate-50 border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500/20 text-sm"
-              value={filterProject}
-              onChange={(e) => setFilterProject(e.target.value)}
-            >
-              <option value="الكل">كل المشاريع</option>
-              {Array.from(new Set(data.map((item) => item.project))).map(
-                (p) => (
-                  <option key={p} value={p}>
-                    {p}
-                  </option>
-                ),
-              )}
-            </select>
+            <MultiSelectFilter
+              label="الحالة"
+              options={STATUS_FILTER_OPTIONS}
+              selected={filterStatuses}
+              onChange={setFilterStatuses}
+            />
+            <MultiSelectFilter
+              label="المشروع"
+              options={projectOptions}
+              selected={filterProjects}
+              onChange={setFilterProjects}
+            />
           </div>
         </div>
 
@@ -3489,6 +3491,99 @@ function KpiCard({
         )}
       </div>
     </motion.div>
+  );
+}
+
+function MultiSelectFilter({
+  label,
+  options,
+  selected,
+  onChange,
+}: {
+  label: string;
+  options: string[];
+  selected: Set<string>;
+  onChange: (next: Set<string>) => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const rootRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!open) return;
+
+    const handleMouseDown = (event: MouseEvent) => {
+      if (rootRef.current?.contains(event.target as Node)) return;
+      setOpen(false);
+    };
+
+    document.addEventListener("mousedown", handleMouseDown);
+    return () => document.removeEventListener("mousedown", handleMouseDown);
+  }, [open]);
+
+  const toggle = (option: string) => {
+    const next = new Set(selected);
+    if (next.has(option)) {
+      next.delete(option);
+    } else {
+      next.add(option);
+    }
+    onChange(next);
+  };
+
+  return (
+    <div className="relative" ref={rootRef}>
+      <button
+        type="button"
+        onClick={() => setOpen((prev) => !prev)}
+        className="flex items-center gap-2 rounded-lg border border-slate-200 bg-slate-50 px-4 py-2 text-sm transition-colors hover:bg-slate-100"
+      >
+        <span>{label}</span>
+        {selected.size > 0 && (
+          <span className="flex h-5 w-5 items-center justify-center rounded-full bg-indigo-500 text-[10px] font-black text-white">
+            {selected.size}
+          </span>
+        )}
+        <ChevronDown
+          size={14}
+          className={cn("transition-transform", open && "rotate-180")}
+        />
+      </button>
+
+      <AnimatePresence>
+        {open && (
+          <motion.div
+            initial={{ opacity: 0, y: -4 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: -4 }}
+            className="absolute right-0 top-full z-50 mt-1 max-h-64 min-w-[200px] overflow-y-auto rounded-xl border border-slate-200 bg-white py-2 shadow-xl"
+          >
+            {selected.size > 0 && (
+              <button
+                type="button"
+                onClick={() => onChange(new Set())}
+                className="w-full px-4 py-1.5 text-right text-xs text-rose-500 transition-colors hover:bg-rose-50"
+              >
+                مسح الكل
+              </button>
+            )}
+            {options.map((option) => (
+              <label
+                key={option}
+                className="flex cursor-pointer items-center gap-2 px-4 py-1.5 text-sm transition-colors hover:bg-slate-50"
+              >
+                <input
+                  type="checkbox"
+                  checked={selected.has(option)}
+                  onChange={() => toggle(option)}
+                  className="rounded border-slate-300 text-indigo-600 focus:ring-indigo-500"
+                />
+                <span>{option}</span>
+              </label>
+            ))}
+          </motion.div>
+        )}
+      </AnimatePresence>
+    </div>
   );
 }
 
